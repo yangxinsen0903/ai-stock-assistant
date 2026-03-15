@@ -50,7 +50,16 @@ class SnapTradeService:
 
         # If there is no stored secret, create/register first.
         if not user_secret:
-            user_secret = _register(candidate_user_id)
+            try:
+                user_secret = _register(candidate_user_id)
+            except ApiException as exc:
+                if exc.status == 400 and "one user" in str(exc).lower():
+                    users = self.auth_api.list_snap_trade_users().body or []
+                    raise ValueError(
+                        f"SnapTrade personal keys allow one user and one already exists ({users}). "
+                        "Please rotate SnapTrade API keys (or provide existing user secret) and try again."
+                    )
+                raise
 
         # Try to create login link with existing credentials.
         try:

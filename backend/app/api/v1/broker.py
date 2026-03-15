@@ -54,9 +54,13 @@ def robinhood_connect(db: Session = Depends(get_db), current_user: User = Depend
     snap = SnapTradeService()
 
     try:
+        existing_secret = account.access_token
+        if existing_secret and existing_secret.startswith("demo_token_"):
+            existing_secret = None
+
         connection = snap.ensure_user_and_link(
-            snap_user_id=_snap_user_id(current_user.id),
-            existing_user_secret=account.access_token,
+            snap_user_id=account.external_user_id or _snap_user_id(current_user.id),
+            existing_user_secret=existing_secret,
         )
     except (ApiException, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"SnapTrade connect failed: {exc}")
