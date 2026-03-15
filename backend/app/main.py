@@ -9,6 +9,7 @@ from app.api.v1.watchlist import router as watchlist_router
 from app.api.v1.alerts import router as alerts_router
 from app.api.v1.assistant import router as assistant_router
 from app.api.v1.broker import router as broker_router
+from app.api.v1.market import router as market_router
 
 # Import models before create_all so SQLAlchemy registers metadata.
 from app.db import models  # noqa: F401
@@ -31,6 +32,7 @@ app.include_router(watchlist_router, prefix=settings.API_V1_PREFIX)
 app.include_router(alerts_router, prefix=settings.API_V1_PREFIX)
 app.include_router(assistant_router, prefix=settings.API_V1_PREFIX)
 app.include_router(broker_router, prefix=settings.API_V1_PREFIX)
+app.include_router(market_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/healthz")

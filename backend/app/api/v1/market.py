@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+from datetime import datetime
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.dependencies.auth import get_current_user
+from app.db.models import User
+from app.schemas.market import HoldingChartResponse, ChartPoint
+
+router = APIRouter(prefix="/market", tags=["market"])
+
+RANGE_MAP: dict[str, tuple[str, str]] = {
+    "1d": ("1d", "5m"),
+    "1w": ("5d", "15m"),
+    "1m": ("1mo", "1d"),
+    "3m": ("3mo", "1d"),
+    "ytd": ("ytd", "1d"),
+    "1y": ("1y", "1d"),
+}
+
+
+@router.get("/chart/{symbol}", response_model=HoldingChartResponse)
+def get_holding_chart(
+    symbol: str,
+    range: str = Query("1d", pattern="^(1d|1w|1m|3m|ytd|1y)$"),
+    _: User = Depends(get_current_user),
+):
+    normalized = symbol.upper().strip()
+    yahoo_range, interval = RANGE_MAP[range]
+
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{normalized}"
+    params = {"range": yahoo_range, "interval": interval, "includePrePost": "false"}
+
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(url, params=params)
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch market data: {exc}")
+
+    result = ((payload.get("chart") or {}).get("result") or [None])[0]
+    if not result:
+        raise HTTPException(status_code=404, detail="No market data found")
+
+    meta = result.get("meta") or {}
+    timestamps = result.get("timestamp") or []
+    quote = (((result.get("indicators") or {}).get("quote") or [{}])[0]) or {}
+    closes = quote.get("close") or []
+
+    points: list[ChartPoint] = []
+    for ts, px in zip(timestamps, closes):
+        if ts is None or px is None:
+            continue
+        points.append(ChartPoint(ts=int(ts), price=float(px)))
+
+    if not points:
+        raise HTTPException(status_code=404, detail="No chart points available")
+
+    previous_close = float(meta.get("previousClose") or points[0].price)
+    current_price = float(meta.get("regularMarketPrice") or points[-1].price)
+    change = current_price - previous_close
+    change_pct = (change / previous_close * 100.0) if previous_close else 0.0
+
+    return HoldingChartResponse(
+        symbol=normalized,
+        range=range,
+        currency=str(meta.get("currency") or "USD"),
+        current_price=current_price,
+        previous_close=previous_close,
+        change=change,
+        change_percent=change_pct,
+        points=points,
+    )

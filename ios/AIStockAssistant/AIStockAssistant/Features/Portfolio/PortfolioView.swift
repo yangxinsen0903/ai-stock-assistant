@@ -20,11 +20,16 @@ struct PortfolioView: View {
                                 .foregroundStyle(.secondary)
                         }
                         ForEach(viewModel.holdings) { item in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.symbol)
-                                    .font(.headline)
-                                Text("Shares: \(item.shares, specifier: "%.2f")")
-                                Text("Avg Cost: $\(item.avg_cost, specifier: "%.2f")")
+                            NavigationLink {
+                                HoldingDetailView(holding: item)
+                                    .environmentObject(appState)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.symbol)
+                                        .font(.headline)
+                                    Text("Shares: \(item.shares, specifier: "%.2f")")
+                                    Text("Avg Cost: $\(item.avg_cost, specifier: "%.2f")")
+                                }
                             }
                         }
                     }
