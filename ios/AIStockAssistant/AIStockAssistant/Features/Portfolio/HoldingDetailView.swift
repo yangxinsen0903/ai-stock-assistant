@@ -78,6 +78,8 @@ struct HoldingDetailView: View {
 
     private func changeText(_ chart: HoldingChartResponse) -> String {
         let sign = chart.change >= 0 ? "+" : ""
-        return "\(sign)$\(chart.change, specifier: "%.2f") (\(sign)\(chart.change_percent, specifier: "%.2f")%) Today"
+        let changeAbs = String(format: "%.2f", chart.change)
+        let pctAbs = String(format: "%.2f", chart.change_percent)
+        return "\(sign)$\(changeAbs) (\(sign)\(pctAbs)%) Today"
     }
 }
