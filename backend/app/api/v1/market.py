@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -20,6 +20,11 @@ RANGE_MAP: dict[str, tuple[str, str]] = {
     "1y": ("1y", "1d"),
 }
 
+# Simple in-memory cache to avoid Yahoo rate-limit spikes.
+# key -> (cached_at_epoch_seconds, response_payload_dict)
+CHART_CACHE: dict[str, tuple[int, dict]] = {}
+CACHE_TTL_SECONDS = 60
+
 
 @router.get("/chart/{symbol}", response_model=HoldingChartResponse)
 def get_holding_chart(
@@ -29,20 +34,44 @@ def get_holding_chart(
 ):
     normalized = symbol.upper().strip()
     yahoo_range, interval = RANGE_MAP[range]
+    cache_key = f"{normalized}:{range}"
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    # Return fresh cached payload when available.
+    cached = CHART_CACHE.get(cache_key)
+    if cached and (now_ts - cached[0] <= CACHE_TTL_SECONDS):
+        return HoldingChartResponse(**cached[1])
 
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{normalized}"
     params = {"range": yahoo_range, "interval": interval, "includePrePost": "false"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (AIStockAssistant/1.0)",
+        "Accept": "application/json",
+    }
 
     try:
         with httpx.Client(timeout=10.0) as client:
-            resp = client.get(url, params=params)
+            resp = client.get(url, params=params, headers=headers)
+
+        # If rate-limited, fall back to stale cache.
+        if resp.status_code == 429:
+            if cached:
+                return HoldingChartResponse(**cached[1])
+            raise HTTPException(status_code=429, detail="Market data provider rate-limited. Please retry in 1 minute.")
+
         resp.raise_for_status()
         payload = resp.json()
+    except HTTPException:
+        raise
     except Exception as exc:
+        if cached:
+            return HoldingChartResponse(**cached[1])
         raise HTTPException(status_code=502, detail=f"Failed to fetch market data: {exc}")
 
     result = ((payload.get("chart") or {}).get("result") or [None])[0]
     if not result:
+        if cached:
+            return HoldingChartResponse(**cached[1])
         raise HTTPException(status_code=404, detail="No market data found")
 
     meta = result.get("meta") or {}
@@ -57,6 +86,8 @@ def get_holding_chart(
         points.append(ChartPoint(ts=int(ts), price=float(px)))
 
     if not points:
+        if cached:
+            return HoldingChartResponse(**cached[1])
         raise HTTPException(status_code=404, detail="No chart points available")
 
     previous_close = float(meta.get("previousClose") or points[0].price)
@@ -64,13 +95,16 @@ def get_holding_chart(
     change = current_price - previous_close
     change_pct = (change / previous_close * 100.0) if previous_close else 0.0
 
-    return HoldingChartResponse(
-        symbol=normalized,
-        range=range,
-        currency=str(meta.get("currency") or "USD"),
-        current_price=current_price,
-        previous_close=previous_close,
-        change=change,
-        change_percent=change_pct,
-        points=points,
-    )
+    response_dict = {
+        "symbol": normalized,
+        "range": range,
+        "currency": str(meta.get("currency") or "USD"),
+        "current_price": current_price,
+        "previous_close": previous_close,
+        "change": change,
+        "change_percent": change_pct,
+        "points": [p.model_dump() for p in points],
+    }
+
+    CHART_CACHE[cache_key] = (now_ts, response_dict)
+    return HoldingChartResponse(**response_dict)

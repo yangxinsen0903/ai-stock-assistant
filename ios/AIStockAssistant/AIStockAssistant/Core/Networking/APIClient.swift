@@ -29,8 +29,12 @@ final class APIClient {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            let message = String(data: data, encoding: .utf8) ?? "Server error"
-            throw APIError.serverError(message)
+            let fallback = String(data: data, encoding: .utf8) ?? "Server error"
+            if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let detail = obj["detail"] as? String {
+                throw APIError.serverError(detail)
+            }
+            throw APIError.serverError(fallback)
         }
 
         do {

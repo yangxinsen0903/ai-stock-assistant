@@ -12,6 +12,11 @@ struct PortfolioView: View {
                         Text("Read-only portfolio mode: holdings are display-only and can only come from broker sync.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                        if !viewModel.lastRefreshMessage.isEmpty {
+                            Text(viewModel.lastRefreshMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     Section("Current Holdings") {
@@ -36,7 +41,7 @@ struct PortfolioView: View {
                 }
                 .refreshable {
                     guard let token = appState.token else { return }
-                    await viewModel.fetch(token: token)
+                    await viewModel.refreshFromBroker(token: token)
                 }
 
                 if !viewModel.errorMessage.isEmpty {
@@ -50,7 +55,7 @@ struct PortfolioView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         guard let token = appState.token else { return }
-                        Task { await viewModel.fetch(token: token) }
+                        Task { await viewModel.refreshFromBroker(token: token) }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }

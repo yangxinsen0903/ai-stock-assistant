@@ -7,6 +7,7 @@ final class PortfolioViewModel: ObservableObject {
     @Published var symbol = ""
     @Published var shares = ""
     @Published var avgCost = ""
+    @Published var lastRefreshMessage = ""
 
     func fetch(token: String) async {
         do {
@@ -15,6 +16,23 @@ final class PortfolioViewModel: ObservableObject {
                 token: token
             )
             holdings = response
+            if !response.isEmpty {
+                lastRefreshMessage = "Updated \(Date().formatted(date: .omitted, time: .shortened))"
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func refreshFromBroker(token: String) async {
+        do {
+            let response: BrokerSyncLite = try await APIClient.shared.request(
+                path: "/broker/robinhood/sync",
+                method: "POST",
+                token: token
+            )
+            lastRefreshMessage = "Synced \(response.synced_positions) positions at \(Date().formatted(date: .omitted, time: .shortened))"
+            await fetch(token: token)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -65,4 +83,10 @@ final class PortfolioViewModel: ObservableObject {
 
 struct BasicResponse: Codable {
     let success: Bool
+}
+
+private struct BrokerSyncLite: Codable {
+    let broker: String
+    let synced_positions: Int
+    let message: String
 }
