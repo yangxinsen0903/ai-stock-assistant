@@ -3,9 +3,11 @@ import Foundation
 struct HoldingChartResponse: Codable {
     let symbol: String
     let range: String
+    let period_label: String
     let currency: String
     let current_price: Double
     let previous_close: Double
+    let reference_price: Double
     let change: Double
     let change_percent: Double
     let points: [HoldingChartPoint]

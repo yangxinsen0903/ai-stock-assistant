@@ -20,6 +20,15 @@ RANGE_MAP: dict[str, tuple[str, str]] = {
     "1y": ("1y", "1d"),
 }
 
+PERIOD_LABEL: dict[str, str] = {
+    "1d": "Today",
+    "1w": "Past week",
+    "1m": "Past month",
+    "3m": "Past 3 months",
+    "ytd": "Year to date",
+    "1y": "Past year",
+}
+
 # Simple in-memory cache to avoid Yahoo rate-limit spikes.
 # key -> (cached_at_epoch_seconds, response_payload_dict)
 CHART_CACHE: dict[str, tuple[int, dict]] = {}
@@ -92,15 +101,21 @@ def get_holding_chart(
 
     previous_close = float(meta.get("previousClose") or points[0].price)
     current_price = float(meta.get("regularMarketPrice") or points[-1].price)
-    change = current_price - previous_close
-    change_pct = (change / previous_close * 100.0) if previous_close else 0.0
+
+    # Robinhood-like behavior: 1D compares vs previous close, other ranges compare
+    # current price vs first visible point in selected time window.
+    reference_price = previous_close if range == "1d" else float(points[0].price)
+    change = current_price - reference_price
+    change_pct = (change / reference_price * 100.0) if reference_price else 0.0
 
     response_dict = {
         "symbol": normalized,
         "range": range,
+        "period_label": PERIOD_LABEL.get(range, "Period"),
         "currency": str(meta.get("currency") or "USD"),
         "current_price": current_price,
         "previous_close": previous_close,
+        "reference_price": reference_price,
         "change": change,
         "change_percent": change_pct,
         "points": [p.model_dump() for p in points],
