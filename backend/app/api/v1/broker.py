@@ -43,7 +43,7 @@ def robinhood_status(db: Session = Depends(get_db), current_user: User = Depends
     )
     return BrokerStatusResponse(
         broker=BROKER_NAME,
-        connected=bool(account and account.is_connected),
+        connected=bool(account and (account.is_connected or account.access_token)),
         last_synced_at=account.last_synced_at.isoformat() if account and account.last_synced_at else None,
     )
 

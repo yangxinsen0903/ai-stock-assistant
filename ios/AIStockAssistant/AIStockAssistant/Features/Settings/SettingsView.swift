@@ -26,7 +26,7 @@ struct SettingsView: View {
                     Button("Sync Portfolio") {
                         Task { await syncPortfolio() }
                     }
-                    .disabled(isLoading || appState.token == nil || !brokerConnected)
+                    .disabled(isLoading || appState.token == nil)
 
                     if !brokerMessage.isEmpty {
                         Text(brokerMessage)
@@ -81,6 +81,8 @@ struct SettingsView: View {
             await MainActor.run {
                 UIApplication.shared.open(url)
             }
+            // SnapTrade finishes in an external portal; allow user to tap Sync when returning.
+            brokerConnected = true
             brokerMessage = "Complete authentication in browser, then tap Sync Portfolio."
         } catch {
             brokerMessage = error.localizedDescription
