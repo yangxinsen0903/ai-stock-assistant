@@ -121,6 +121,18 @@ curl -X POST http://127.0.0.1:8000/api/v1/auth/login \
 
 ---
 
+## 5) Broker connect flow (Robinhood-style OAuth jump)
+
+This MVP includes a broker-connection flow in **Settings**:
+1. Tap **Connect Robinhood** (opens browser)
+2. Complete auth callback
+3. Return to app and tap **Sync Portfolio**
+4. Portfolio tab refreshes with synced holdings
+
+### Important
+Current backend sync uses a **demo dataset** after successful connection.
+This gives you the full UX + API workflow now, and you can replace the sync logic with real broker API calls later.
+
 ## Notes
 - Backend auto-creates tables on startup for quick local testing.
 - AI endpoint uses OpenAI when `OPENAI_API_KEY` is set.

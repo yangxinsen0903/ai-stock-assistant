@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4.1-mini"
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    ROBINHOOD_CLIENT_ID: str = ""
+    ROBINHOOD_CLIENT_SECRET: str = ""
+    ROBINHOOD_REDIRECT_URI: str = "http://127.0.0.1:8000/api/v1/broker/robinhood/callback"
+    APP_PUBLIC_URL: str = "http://127.0.0.1:8000"
 
     @property
     def cors_origins_list(self) -> List[str]:
