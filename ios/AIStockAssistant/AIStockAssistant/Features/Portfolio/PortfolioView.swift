@@ -8,19 +8,10 @@ struct PortfolioView: View {
         NavigationStack {
             VStack {
                 Form {
-                    Section("Add Holding") {
-                        TextField("Symbol", text: $viewModel.symbol)
-                            .textInputAutocapitalization(.characters)
-                            .autocorrectionDisabled(true)
-                        TextField("Shares", text: $viewModel.shares)
-                            .keyboardType(.decimalPad)
-                        TextField("Average Cost", text: $viewModel.avgCost)
-                            .keyboardType(.decimalPad)
-                        Button("Add") {
-                            if let token = appState.token {
-                                Task { await viewModel.addHolding(token: token) }
-                            }
-                        }
+                    Section("Mode") {
+                        Text("Read-only portfolio mode: holdings are display-only and can only come from broker sync.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
 
                     Section("Current Holdings") {
@@ -34,15 +25,6 @@ struct PortfolioView: View {
                                     .font(.headline)
                                 Text("Shares: \(item.shares, specifier: "%.2f")")
                                 Text("Avg Cost: $\(item.avg_cost, specifier: "%.2f")")
-                            }
-                        }
-                        .onDelete { indexSet in
-                            guard let token = appState.token else { return }
-                            let ids = indexSet.map { viewModel.holdings[$0].id }
-                            Task {
-                                for id in ids {
-                                    await viewModel.deleteHolding(id: id, token: token)
-                                }
                             }
                         }
                     }

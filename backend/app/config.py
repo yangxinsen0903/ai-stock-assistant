@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     ROBINHOOD_CLIENT_SECRET: str = ""
     ROBINHOOD_REDIRECT_URI: str = "http://127.0.0.1:8000/api/v1/broker/robinhood/callback"
     APP_PUBLIC_URL: str = "http://127.0.0.1:8000"
+    PORTFOLIO_READ_ONLY: bool = True
 
     @property
     def cors_origins_list(self) -> List[str]:

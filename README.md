@@ -130,8 +130,10 @@ This MVP includes a broker-connection flow in **Settings**:
 4. Portfolio tab refreshes with synced holdings
 
 ### Important
-Current backend sync uses a **demo dataset** after successful connection.
-This gives you the full UX + API workflow now, and you can replace the sync logic with real broker API calls later.
+Current backend runs in **read-only portfolio mode** by default.
+- No buy/sell/trading actions are implemented.
+- Manual add/delete holdings APIs are blocked when read-only mode is enabled.
+- Broker sync currently updates connection status only; real Robinhood position ingestion is still to be integrated.
 
 ## Notes
 - Backend auto-creates tables on startup for quick local testing.

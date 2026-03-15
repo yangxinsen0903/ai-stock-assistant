@@ -86,22 +86,15 @@ def robinhood_sync(db: Session = Depends(get_db), current_user: User = Depends(g
     if not account.is_connected:
         raise HTTPException(status_code=400, detail="Robinhood is not connected")
 
-    # MVP demo sync dataset. Replace with real broker API integration in production.
-    demo_positions = [
-        {"symbol": "SPY", "shares": 3.0, "avg_cost": 500.0},
-        {"symbol": "QQQ", "shares": 2.0, "avg_cost": 430.0},
-        {"symbol": "AAPL", "shares": 5.0, "avg_cost": 185.0},
-    ]
-
-    db.query(Holding).filter(Holding.user_id == current_user.id).delete()
-    for item in demo_positions:
-        db.add(Holding(user_id=current_user.id, symbol=item["symbol"], shares=item["shares"], avg_cost=item["avg_cost"]))
+    # Read-only sync mode: do not write placeholder/demo holdings.
+    # Real broker position ingestion should be implemented here.
+    synced_positions = db.query(Holding).filter(Holding.user_id == current_user.id).count()
 
     account.last_synced_at = datetime.now(timezone.utc)
     db.commit()
 
     return BrokerSyncResponse(
         broker=BROKER_NAME,
-        synced_positions=len(demo_positions),
-        message="Portfolio synced successfully.",
+        synced_positions=synced_positions,
+        message="Broker connected. Real Robinhood positions sync is not configured yet; no holdings were modified.",
     )
