@@ -29,6 +29,10 @@ struct PortfolioView: View {
                         }
                     }
                 }
+                .refreshable {
+                    guard let token = appState.token else { return }
+                    await viewModel.fetch(token: token)
+                }
 
                 if !viewModel.errorMessage.isEmpty {
                     Text(viewModel.errorMessage)
@@ -37,6 +41,16 @@ struct PortfolioView: View {
                 }
             }
             .navigationTitle("Portfolio")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        guard let token = appState.token else { return }
+                        Task { await viewModel.fetch(token: token) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+            }
             .task {
                 if let token = appState.token {
                     await viewModel.fetch(token: token)

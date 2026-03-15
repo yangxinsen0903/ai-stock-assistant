@@ -4,6 +4,7 @@ import UIKit
 struct SettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var brokerConnected = false
+    @State private var lastSyncedAt: String?
     @State private var brokerMessage = ""
     @State private var isLoading = false
 
@@ -27,6 +28,12 @@ struct SettingsView: View {
                         Task { await syncPortfolio() }
                     }
                     .disabled(isLoading || appState.token == nil)
+
+                    if let lastSyncedAt {
+                        Text("Last synced: \(lastSyncedAt)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
 
                     if !brokerMessage.isEmpty {
                         Text(brokerMessage)
@@ -57,6 +64,7 @@ struct SettingsView: View {
                 token: token
             )
             brokerConnected = status.connected
+            lastSyncedAt = formatSyncTime(status.last_synced_at)
         } catch {
             brokerMessage = error.localizedDescription
         }
@@ -102,10 +110,24 @@ struct SettingsView: View {
             )
             brokerConnected = true
             brokerMessage = "Synced \(response.synced_positions) positions."
+            await refreshBrokerStatus()
             NotificationCenter.default.post(name: .portfolioDidSync, object: nil)
         } catch {
             brokerMessage = error.localizedDescription
         }
+    }
+
+    private func formatSyncTime(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+
+        let iso = ISO8601DateFormatter()
+        if let date = iso.date(from: raw) {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            return formatter.string(from: date)
+        }
+        return raw
     }
 }
 
