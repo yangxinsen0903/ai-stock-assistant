@@ -100,6 +100,7 @@ struct SettingsView: View {
             )
             brokerConnected = true
             brokerMessage = "Synced \(response.synced_positions) positions."
+            NotificationCenter.default.post(name: .portfolioDidSync, object: nil)
         } catch {
             brokerMessage = error.localizedDescription
         }
@@ -121,4 +122,8 @@ private struct BrokerSync: Codable {
     let broker: String
     let synced_positions: Int
     let message: String
+}
+
+extension Notification.Name {
+    static let portfolioDidSync = Notification.Name("portfolioDidSync")
 }

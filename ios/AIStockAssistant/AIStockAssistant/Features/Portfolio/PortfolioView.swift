@@ -60,6 +60,10 @@ struct PortfolioView: View {
                     await viewModel.fetch(token: token)
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .portfolioDidSync)) { _ in
+                guard let token = appState.token else { return }
+                Task { await viewModel.fetch(token: token) }
+            }
         }
     }
 }
