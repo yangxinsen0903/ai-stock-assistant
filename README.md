@@ -121,19 +121,30 @@ curl -X POST http://127.0.0.1:8000/api/v1/auth/login \
 
 ---
 
-## 5) Broker connect flow (Robinhood-style OAuth jump)
+## 5) Broker connect flow (Robinhood via SnapTrade)
 
-This MVP includes a broker-connection flow in **Settings**:
-1. Tap **Connect Robinhood** (opens browser)
-2. Complete auth callback
+This app uses SnapTrade as a brokerage data bridge for Robinhood (read-only sync).
+
+Flow in **Settings**:
+1. Tap **Connect Robinhood** (opens SnapTrade connection portal)
+2. Authorize connection
 3. Return to app and tap **Sync Portfolio**
 4. Portfolio tab refreshes with synced holdings
 
+### Required env vars
+Set in `backend/.env`:
+
+```env
+SNAPTRADE_CLIENT_ID=...
+SNAPTRADE_CONSUMER_KEY=...
+SNAPTRADE_BASE_URL=https://api.snaptrade.com/api/v1
+```
+
 ### Important
-Current backend runs in **read-only portfolio mode** by default.
+- Runs in **read-only portfolio mode** by default.
 - No buy/sell/trading actions are implemented.
 - Manual add/delete holdings APIs are blocked when read-only mode is enabled.
-- Broker sync currently updates connection status only; real Robinhood position ingestion is still to be integrated.
+- Sync mirrors connected brokerage positions into local display holdings.
 
 ## Notes
 - Backend auto-creates tables on startup for quick local testing.

@@ -1,18 +1,23 @@
 from datetime import datetime, timezone
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from snaptrade_client.exceptions import ApiException
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.db.models import BrokerAccount, Holding, User
 from app.db.session import get_db
 from app.dependencies.auth import get_current_user
 from app.schemas.broker import BrokerConnectResponse, BrokerStatusResponse, BrokerSyncResponse
+from app.services.snaptrade_service import SnapTradeService
 
 router = APIRouter(prefix="/broker", tags=["broker"])
 
 BROKER_NAME = "robinhood"
+SNAP_BROKER = "robinhood"
+
+
+def _snap_user_id(user_id: int) -> str:
+    return f"aistock-{user_id}"
 
 
 def _get_or_create_account(db: Session, user_id: int) -> BrokerAccount:
@@ -44,57 +49,80 @@ def robinhood_status(db: Session = Depends(get_db), current_user: User = Depends
 
 
 @router.get("/robinhood/connect", response_model=BrokerConnectResponse)
-def robinhood_connect(current_user: User = Depends(get_current_user)):
-    # Production: replace this with Robinhood OAuth authorize endpoint when available.
-    state = f"user-{current_user.id}"
-    callback = settings.ROBINHOOD_REDIRECT_URI
-    params = urlencode({"state": state, "client_id": settings.ROBINHOOD_CLIENT_ID or "demo-client"})
-    connect_url = f"{settings.APP_PUBLIC_URL}/api/v1/broker/robinhood/callback?code=demo_auth_code&{params}&redirect_uri={callback}"
-    return BrokerConnectResponse(broker=BROKER_NAME, connect_url=connect_url)
+def robinhood_connect(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    account = _get_or_create_account(db, current_user.id)
+    snap = SnapTradeService()
+
+    try:
+        connection = snap.ensure_user_and_link(
+            snap_user_id=_snap_user_id(current_user.id),
+            existing_user_secret=account.access_token,
+        )
+    except (ApiException, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"SnapTrade connect failed: {exc}")
+
+    account.external_user_id = connection.user_id
+    account.access_token = connection.user_secret  # stores SnapTrade userSecret
+    db.commit()
+
+    return BrokerConnectResponse(broker=BROKER_NAME, connect_url=connection.redirect_uri)
 
 
 @router.get("/robinhood/callback")
 def robinhood_callback(
-    code: str = Query(...),
-    state: str = Query(...),
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    if not state.startswith("user-"):
-        raise HTTPException(status_code=400, detail="Invalid state")
-
-    user_id = int(state.split("user-")[-1])
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    account = _get_or_create_account(db, user_id)
-    account.access_token = f"demo_token_{code}"
-    account.refresh_token = "demo_refresh_token"
-    account.external_user_id = str(user_id)
-    account.is_connected = True
-    db.commit()
+    # SnapTrade connection portal finalizes authorization remotely.
+    # Callback is kept for compatibility with earlier app flow.
+    if state and state.startswith("user-"):
+        user_id = int(state.split("user-")[-1])
+        account = _get_or_create_account(db, user_id)
+        account.is_connected = True
+        if code:
+            account.refresh_token = code
+        db.commit()
 
     return {
         "success": True,
-        "message": "Robinhood connected. You can return to the app and tap Sync Portfolio.",
+        "message": "Connection flow completed. Return to the app and tap Sync Portfolio.",
     }
 
 
 @router.post("/robinhood/sync", response_model=BrokerSyncResponse)
 def robinhood_sync(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     account = _get_or_create_account(db, current_user.id)
-    if not account.is_connected:
-        raise HTTPException(status_code=400, detail="Robinhood is not connected")
+    if not account.access_token:
+        raise HTTPException(status_code=400, detail="Broker is not connected")
 
-    # Read-only sync mode: do not write placeholder/demo holdings.
-    # Real broker position ingestion should be implemented here.
-    synced_positions = db.query(Holding).filter(Holding.user_id == current_user.id).count()
+    snap = SnapTradeService()
+    try:
+        positions = snap.fetch_all_holdings(
+            snap_user_id=account.external_user_id or _snap_user_id(current_user.id),
+            user_secret=account.access_token,
+        )
+    except ApiException as exc:
+        raise HTTPException(status_code=400, detail=f"SnapTrade sync failed: {exc}")
 
+    # Read-only synchronization: mirror broker positions into local holdings for display only.
+    db.query(Holding).filter(Holding.user_id == current_user.id).delete()
+    for item in positions:
+        db.add(
+            Holding(
+                user_id=current_user.id,
+                symbol=item["symbol"],
+                shares=item["shares"],
+                avg_cost=item["avg_cost"],
+            )
+        )
+
+    account.is_connected = True
     account.last_synced_at = datetime.now(timezone.utc)
     db.commit()
 
     return BrokerSyncResponse(
         broker=BROKER_NAME,
-        synced_positions=synced_positions,
-        message="Broker connected. Real Robinhood positions sync is not configured yet; no holdings were modified.",
+        synced_positions=len(positions),
+        message="Portfolio synced from connected brokerage (read-only).",
     )

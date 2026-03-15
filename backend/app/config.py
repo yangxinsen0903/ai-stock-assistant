@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     ROBINHOOD_REDIRECT_URI: str = "http://127.0.0.1:8000/api/v1/broker/robinhood/callback"
     APP_PUBLIC_URL: str = "http://127.0.0.1:8000"
     PORTFOLIO_READ_ONLY: bool = True
+    SNAPTRADE_CLIENT_ID: str = ""
+    SNAPTRADE_CONSUMER_KEY: str = ""
+    SNAPTRADE_BASE_URL: str = "https://api.snaptrade.com/api/v1"
 
     @property
     def cors_origins_list(self) -> List[str]:
