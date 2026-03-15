@@ -103,6 +103,10 @@ def robinhood_sync(db: Session = Depends(get_db), current_user: User = Depends(g
             user_secret=account.access_token,
         )
     except ApiException as exc:
+        if exc.status == 401:
+            account.is_connected = False
+            db.commit()
+            raise HTTPException(status_code=400, detail="SnapTrade sync failed: authorization expired or invalid. Please tap Connect Robinhood again.")
         raise HTTPException(status_code=400, detail=f"SnapTrade sync failed: {exc}")
 
     # Read-only synchronization: mirror broker positions into local holdings for display only.

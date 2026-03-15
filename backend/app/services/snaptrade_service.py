@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+import uuid
 
 import snaptrade_client
 from snaptrade_client.apis.tags.account_information_api import AccountInformationApi
@@ -30,33 +31,45 @@ class SnapTradeService:
         self.account_api = AccountInformationApi(client)
 
     def ensure_user_and_link(self, *, snap_user_id: str, existing_user_secret: str | None) -> SnapTradeConnection:
+        """
+        Ensure we have a valid SnapTrade user + secret and return a connection portal link.
+        If an old/stale secret exists (common after switching from demo tokens), we auto-recover
+        by creating a fresh SnapTrade user id suffix.
+        """
+
+        def _register(user_id: str) -> str:
+            register = self.auth_api.register_snap_trade_user(user_id=user_id)
+            body = register.body or {}
+            secret = body.get("userSecret")
+            if not secret:
+                raise ValueError("Unable to obtain SnapTrade user secret")
+            return secret
+
+        candidate_user_id = snap_user_id
         user_secret = existing_user_secret
 
+        # If there is no stored secret, create/register first.
         if not user_secret:
-            try:
-                register = self.auth_api.register_snap_trade_user(user_id=snap_user_id)
-                body = register.body or {}
-                user_secret = body.get("userSecret")
-            except ApiException as exc:
-                # If user already exists remotely but secret was not stored locally,
-                # require manual reset in dashboard to avoid destructive assumptions.
-                if exc.status == 409:
-                    raise ValueError(
-                        "SnapTrade user already exists but local secret is missing. "
-                        "Please reset user secret in SnapTrade dashboard and re-connect."
-                    )
+            user_secret = _register(candidate_user_id)
+
+        # Try to create login link with existing credentials.
+        try:
+            login = self.auth_api.login_snap_trade_user(user_id=candidate_user_id, user_secret=user_secret)
+        except ApiException as exc:
+            # Recover from invalid/missing userSecret by creating a fresh SnapTrade user id.
+            if exc.status == 401:
+                candidate_user_id = f"{snap_user_id}-{uuid.uuid4().hex[:6]}"
+                user_secret = _register(candidate_user_id)
+                login = self.auth_api.login_snap_trade_user(user_id=candidate_user_id, user_secret=user_secret)
+            else:
                 raise
 
-        if not user_secret:
-            raise ValueError("Unable to obtain SnapTrade user secret")
-
-        login = self.auth_api.login_snap_trade_user(user_id=snap_user_id, user_secret=user_secret)
         body = login.body or {}
         redirect_uri = body.get("redirectURI")
         if not redirect_uri:
             raise ValueError("SnapTrade did not return redirect URI")
 
-        return SnapTradeConnection(user_id=snap_user_id, user_secret=user_secret, redirect_uri=redirect_uri)
+        return SnapTradeConnection(user_id=candidate_user_id, user_secret=user_secret, redirect_uri=redirect_uri)
 
     def fetch_all_holdings(self, *, snap_user_id: str, user_secret: str) -> list[dict[str, Any]]:
         response = self.account_api.get_all_user_holdings(user_id=snap_user_id, user_secret=user_secret)
