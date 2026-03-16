@@ -15,14 +15,17 @@ from app.services.snaptrade_service import SnapTradeService
 router = APIRouter(prefix="/market", tags=["market"])
 
 RANGE_MAP: dict[str, tuple[str, str]] = {
-    "1d": ("1d", "5m"),
-    "1w": ("5d", "15m"),
-    "1m": ("1mo", "1d"),
+    # Requested cadence profile:
+    # 1D minute-level, 1W hour-level, 1M hour-level,
+    # 3M day-level, 1Y+ day-level.
+    "1d": ("1d", "1m"),
+    "1w": ("5d", "60m"),
+    "1m": ("1mo", "60m"),
     "3m": ("3mo", "1d"),
     "ytd": ("ytd", "1d"),
     "1y": ("1y", "1d"),
-    "5y": ("5y", "1wk"),
-    "max": ("max", "1mo"),
+    "5y": ("5y", "1d"),
+    "max": ("max", "1d"),
 }
 
 PERIOD_LABEL: dict[str, str] = {
@@ -54,7 +57,16 @@ def _normalize_points(raw_points: list[ChartPoint], range_key: str) -> list[Char
 
     # For dense ranges, bucket by fixed cadence and keep LAST trade in bucket
     # to preserve directional steps (instead of averaging curves).
-    target_step = 900 if range_key == "1w" else 300 if range_key == "1d" else None
+    target_step = {
+        "1d": 60,      # 1 minute
+        "1w": 3600,    # 1 hour
+        "1m": 3600,    # 1 hour
+        "3m": 86400,   # 1 day
+        "ytd": 86400,
+        "1y": 86400,
+        "5y": 86400,
+        "max": 86400,
+    }.get(range_key)
     if target_step:
         bucket_last: dict[int, ChartPoint] = {}
         for p in points:
