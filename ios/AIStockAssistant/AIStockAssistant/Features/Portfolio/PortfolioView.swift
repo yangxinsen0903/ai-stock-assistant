@@ -33,7 +33,7 @@ struct PortfolioView: View {
                                 )
                                 .foregroundStyle(displayChange(chart) >= 0 ? .green : .red)
                                 .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-                                .interpolationMethod(.monotone)
+                                .interpolationMethod(.linear)
 
                                 if let selectedPoint, selectedPoint.id == point.id {
                                     RuleMark(x: .value("Selected", selectedPoint.date))
