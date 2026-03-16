@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from statistics import median
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -43,7 +42,7 @@ CACHE_TTL_SECONDS = 60
 
 
 def _normalize_points(raw_points: list[ChartPoint], range_key: str) -> list[ChartPoint]:
-    # 1) sort + dedupe
+    # Robinhood-like look: keep shape crisp (no curve smoothing), only clean ordering and density.
     sorted_points = sorted(raw_points, key=lambda p: p.ts)
     dedup: dict[int, float] = {}
     for p in sorted_points:
@@ -53,42 +52,17 @@ def _normalize_points(raw_points: list[ChartPoint], range_key: str) -> list[Char
     if len(points) < 3:
         return points
 
-    # 2) robust spike suppression (rolling median)
-    prices = [p.price for p in points]
-    smoothed = prices[:]
-    window = 5 if len(points) >= 11 else 3
-    half = window // 2
-    for i in range(half, len(prices) - half):
-        local = prices[i - half : i + half + 1]
-        med = median(local)
-        if med == 0:
-            continue
-        if abs(prices[i] - med) / abs(med) > 0.06:
-            smoothed[i] = med
-
-    # 3) light EMA smoothing (visual polish, keeps trend)
-    alpha = 0.35 if range_key in ("1d", "1w") else 0.25
-    ema = smoothed[0]
-    ema_prices = [ema]
-    for px in smoothed[1:]:
-        ema = alpha * px + (1 - alpha) * ema
-        ema_prices.append(ema)
-
-    normalized = [ChartPoint(ts=points[i].ts, price=float(ema_prices[i])) for i in range(len(points))]
-
-    # 4) resample very dense short ranges to consistent cadence
+    # For dense ranges, bucket by fixed cadence and keep LAST trade in bucket
+    # to preserve directional steps (instead of averaging curves).
     target_step = 900 if range_key == "1w" else 300 if range_key == "1d" else None
     if target_step:
-        bucketed: dict[int, list[float]] = {}
-        for p in normalized:
+        bucket_last: dict[int, ChartPoint] = {}
+        for p in points:
             b = (p.ts // target_step) * target_step
-            bucketed.setdefault(b, []).append(p.price)
-        normalized = [
-            ChartPoint(ts=ts, price=sum(vals) / len(vals))
-            for ts, vals in sorted(bucketed.items(), key=lambda x: x[0])
-        ]
+            bucket_last[b] = p
+        points = [bucket_last[k] for k in sorted(bucket_last.keys())]
 
-    return normalized
+    return points
 
 
 def _load_chart_payload(symbol: str, range_key: str) -> dict:
