@@ -144,13 +144,13 @@ struct HoldingDetailView: View {
 
     private func yDomain(for chart: HoldingChartResponse) -> ClosedRange<Double> {
         let prices = chart.points.map { $0.price }
-        guard let min = prices.min(), let max = prices.max() else {
+        guard let minPrice = prices.min(), let maxPrice = prices.max() else {
             return (chart.current_price - 1)...(chart.current_price + 1)
         }
-        let span = max - min
-        let base = max(max * 0.005, 0.1)
-        let padding = max(span * 0.1, base)
-        return (min - padding)...(max + padding)
+        let span = maxPrice - minPrice
+        let basePadding = Swift.max(maxPrice * 0.005, 0.1)
+        let padding = Swift.max(span * 0.1, basePadding)
+        return (minPrice - padding)...(maxPrice + padding)
     }
 
     private func nearestPoint(to date: Date, in points: [HoldingChartPoint]) -> HoldingChartPoint? {
