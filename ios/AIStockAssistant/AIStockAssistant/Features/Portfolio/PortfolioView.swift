@@ -26,21 +26,23 @@ struct PortfolioView: View {
                                     .foregroundStyle(.secondary)
                             }
 
-                            Chart(chart.points) { point in
+                            Chart(Array(chart.points.enumerated()), id: \.element.id) { idx, point in
                                 LineMark(
-                                    x: .value("Time", point.date),
+                                    x: .value("Index", idx),
                                     y: .value("Value", point.price)
                                 )
                                 .foregroundStyle(displayChange(chart) >= 0 ? .green : .red)
                                 .lineStyle(StrokeStyle(lineWidth: 2.0, lineCap: .round, lineJoin: .round))
                                 .interpolationMethod(.linear)
 
-                                if let selectedPoint, selectedPoint.id == point.id {
-                                    RuleMark(x: .value("Selected", selectedPoint.date))
+                                if let selectedPoint,
+                                   let selectedIndex = chart.points.firstIndex(where: { $0.id == selectedPoint.id }),
+                                   selectedPoint.id == point.id {
+                                    RuleMark(x: .value("Selected", selectedIndex))
                                         .foregroundStyle(.gray.opacity(0.45))
                                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
                                     PointMark(
-                                        x: .value("Selected", selectedPoint.date),
+                                        x: .value("Selected", selectedIndex),
                                         y: .value("Value", selectedPoint.price)
                                     )
                                     .foregroundStyle(.white)
@@ -64,9 +66,10 @@ struct PortfolioView: View {
                                                     let origin = geometry[proxy.plotAreaFrame].origin
                                                     let x = value.location.x - origin.x
                                                     guard x >= 0, x <= proxy.plotAreaSize.width,
-                                                          let date: Date = proxy.value(atX: x)
+                                                          let idx: Int = proxy.value(atX: x)
                                                     else { return }
-                                                    selectedPoint = nearestPoint(to: date, in: chart.points)
+                                                    let safeIdx = min(max(idx, 0), chart.points.count - 1)
+                                                    selectedPoint = chart.points[safeIdx]
                                                 }
                                                 .onEnded { _ in selectedPoint = nil }
                                         )
@@ -201,13 +204,6 @@ struct PortfolioView: View {
         let basePadding = Swift.max(maxPrice * 0.003, 1.0)
         let padding = Swift.max(span * 0.15, basePadding)
         return (minPrice - padding)...(maxPrice + padding)
-    }
-
-    private func nearestPoint(to date: Date, in points: [HoldingChartPoint]) -> HoldingChartPoint? {
-        points.min(by: {
-            abs($0.date.timeIntervalSince1970 - date.timeIntervalSince1970) <
-            abs($1.date.timeIntervalSince1970 - date.timeIntervalSince1970)
-        })
     }
 
     private func timeLabel(for date: Date, range: String) -> String {
