@@ -30,21 +30,6 @@ struct HoldingDetailView: View {
                     }
 
                     Chart(chart.points) { point in
-                        AreaMark(
-                            x: .value("Time", point.date),
-                            y: .value("Price", point.price)
-                        )
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [
-                                    (displayChange(chart) >= 0 ? Color.green : Color.red).opacity(0.22),
-                                    .clear,
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-
                         LineMark(
                             x: .value("Time", point.date),
                             y: .value("Price", point.price)
@@ -65,6 +50,9 @@ struct HoldingDetailView: View {
                             .foregroundStyle(.white)
                             .symbolSize(40)
                         }
+                        RuleMark(y: .value("Reference", chart.reference_price))
+                            .foregroundStyle(.gray.opacity(0.35))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
                     }
                     .chartYScale(domain: yDomain(for: chart))
                     .chartXAxis(.hidden)
@@ -99,17 +87,25 @@ struct HoldingDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
 
-                Picker("Range", selection: $viewModel.selectedRange) {
-                    ForEach(ranges, id: \.self) { range in
-                        Text(range.uppercased()).tag(range)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: viewModel.selectedRange) { _, _ in
-                    Task {
-                        selectedPoint = nil
-                        guard let token = appState.token else { return }
-                        await viewModel.load(symbol: holding.symbol, token: token)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(ranges, id: \.self) { range in
+                            Button(range.uppercased()) {
+                                guard viewModel.selectedRange != range else { return }
+                                viewModel.selectedRange = range
+                                Task {
+                                    selectedPoint = nil
+                                    guard let token = appState.token else { return }
+                                    await viewModel.load(symbol: holding.symbol, token: token)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(viewModel.selectedRange == range ? Color.white.opacity(0.12) : Color.clear)
+                            .clipShape(Capsule())
+                            .foregroundStyle(viewModel.selectedRange == range ? Color.primary : Color.secondary)
+                        }
                     }
                 }
 

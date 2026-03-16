@@ -27,21 +27,6 @@ struct PortfolioView: View {
                             }
 
                             Chart(chart.points) { point in
-                                AreaMark(
-                                    x: .value("Time", point.date),
-                                    y: .value("Value", point.price)
-                                )
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [
-                                            (displayChange(chart) >= 0 ? Color.green : Color.red).opacity(0.22),
-                                            .clear,
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-
                                 LineMark(
                                     x: .value("Time", point.date),
                                     y: .value("Value", point.price)
@@ -61,6 +46,9 @@ struct PortfolioView: View {
                                     .foregroundStyle(.white)
                                     .symbolSize(36)
                                 }
+                                RuleMark(y: .value("Reference", chart.reference_value))
+                                    .foregroundStyle(.gray.opacity(0.35))
+                                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
                             }
                             .chartYScale(domain: yDomain(for: chart.points.map { $0.price }))
                             .chartXAxis(.hidden)
@@ -89,17 +77,25 @@ struct PortfolioView: View {
                             }
                             .frame(height: 220)
 
-                            Picker("Range", selection: $viewModel.portfolioRange) {
-                                ForEach(ranges, id: \.self) { range in
-                                    Text(range.uppercased()).tag(range)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                            .onChange(of: viewModel.portfolioRange) { _, _ in
-                                Task {
-                                    selectedPoint = nil
-                                    guard let token = appState.token else { return }
-                                    await viewModel.loadPortfolioChart(token: token)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(ranges, id: \.self) { range in
+                                        Button(range.uppercased()) {
+                                            guard viewModel.portfolioRange != range else { return }
+                                            viewModel.portfolioRange = range
+                                            Task {
+                                                selectedPoint = nil
+                                                guard let token = appState.token else { return }
+                                                await viewModel.loadPortfolioChart(token: token)
+                                            }
+                                        }
+                                        .buttonStyle(.plain)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(viewModel.portfolioRange == range ? Color.white.opacity(0.12) : Color.clear)
+                                        .clipShape(Capsule())
+                                        .foregroundStyle(viewModel.portfolioRange == range ? Color.primary : Color.secondary)
+                                    }
                                 }
                             }
                         } else {
