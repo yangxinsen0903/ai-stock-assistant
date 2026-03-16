@@ -52,7 +52,8 @@ def get_holding_chart(
         return HoldingChartResponse(**cached[1])
 
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{normalized}"
-    params = {"range": yahoo_range, "interval": interval, "includePrePost": "false"}
+    include_pre_post = "true" if range == "1d" else "false"
+    params = {"range": yahoo_range, "interval": interval, "includePrePost": include_pre_post}
     headers = {
         "User-Agent": "Mozilla/5.0 (AIStockAssistant/1.0)",
         "Accept": "application/json",
