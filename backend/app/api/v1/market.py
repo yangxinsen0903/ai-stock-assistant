@@ -16,7 +16,7 @@ router = APIRouter(prefix="/market", tags=["market"])
 
 RANGE_MAP: dict[str, tuple[str, str]] = {
     "1d": ("1d", "5m"),
-    "1w": ("5d", "5m"),
+    "1w": ("5d", "15m"),
     "1m": ("1mo", "1d"),
     "3m": ("3mo", "1d"),
     "ytd": ("ytd", "1d"),
@@ -39,6 +39,44 @@ PERIOD_LABEL: dict[str, str] = {
 # key -> (cached_at_epoch_seconds, response_payload_dict)
 CHART_CACHE: dict[str, tuple[int, dict]] = {}
 CACHE_TTL_SECONDS = 60
+
+
+def _normalize_points(raw_points: list[ChartPoint], range_key: str) -> list[ChartPoint]:
+    # 1) sort + dedupe by timestamp
+    sorted_points = sorted(raw_points, key=lambda p: p.ts)
+    dedup: dict[int, float] = {}
+    for p in sorted_points:
+        dedup[p.ts] = p.price
+    points = [ChartPoint(ts=ts, price=px) for ts, px in sorted(dedup.items(), key=lambda x: x[0])]
+
+    if len(points) < 3:
+        return points
+
+    # 2) remove obvious single-tick spikes (bad print) by median-neighbor check
+    cleaned = [points[0]]
+    for i in range(1, len(points) - 1):
+        prev_px = points[i - 1].price
+        cur_px = points[i].price
+        next_px = points[i + 1].price
+        mid = (prev_px + next_px) / 2.0
+        if mid == 0:
+            cleaned.append(points[i])
+            continue
+        # if center deviates too much while neighbors are close, treat as spike
+        dev = abs(cur_px - mid) / abs(mid)
+        neighbor_dev = abs(prev_px - next_px) / abs(mid)
+        if dev > 0.08 and neighbor_dev < 0.02:
+            cleaned.append(ChartPoint(ts=points[i].ts, price=mid))
+        else:
+            cleaned.append(points[i])
+    cleaned.append(points[-1])
+
+    # 3) keep intraday curves visually smooth for 1W by downsampling density a bit
+    if range_key == "1w" and len(cleaned) > 220:
+        step = max(len(cleaned) // 180, 1)
+        cleaned = cleaned[::step]
+
+    return cleaned
 
 
 def _load_chart_payload(symbol: str, range_key: str) -> dict:
@@ -102,11 +140,13 @@ def _load_chart_payload(symbol: str, range_key: str) -> dict:
     quote = (((result.get("indicators") or {}).get("quote") or [{}])[0]) or {}
     closes = quote.get("close") or []
 
-    points: list[ChartPoint] = []
+    raw_points: list[ChartPoint] = []
     for ts, px in zip(timestamps, closes):
         if ts is None or px is None:
             continue
-        points.append(ChartPoint(ts=int(ts), price=float(px)))
+        raw_points.append(ChartPoint(ts=int(ts), price=float(px)))
+
+    points = _normalize_points(raw_points, range_key)
 
     if not points:
         if cached:

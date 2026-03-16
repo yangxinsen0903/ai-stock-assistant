@@ -32,8 +32,8 @@ struct PortfolioView: View {
                                     y: .value("Value", point.price)
                                 )
                                 .foregroundStyle(displayChange(chart) >= 0 ? .green : .red)
-                                .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-                                .interpolationMethod(.linear)
+                                .lineStyle(StrokeStyle(lineWidth: 2.0, lineCap: .round, lineJoin: .round))
+                                .interpolationMethod(.catmullRom)
 
                                 if let selectedPoint, selectedPoint.id == point.id {
                                     RuleMark(x: .value("Selected", selectedPoint.date))
@@ -46,9 +46,6 @@ struct PortfolioView: View {
                                     .foregroundStyle(.white)
                                     .symbolSize(36)
                                 }
-                                RuleMark(y: .value("Reference", chart.reference_value))
-                                    .foregroundStyle(.gray.opacity(0.35))
-                                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
                             }
                             .chartYScale(domain: yDomain(for: chart.points.map { $0.price }))
                             .chartXAxis(.hidden)
