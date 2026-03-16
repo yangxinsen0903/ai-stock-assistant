@@ -1,13 +1,113 @@
 import SwiftUI
+import Charts
 
 struct PortfolioView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = PortfolioViewModel()
+    @State private var selectedPoint: HoldingChartPoint?
+
+    private let ranges = ["1d", "1w", "1m", "3m", "ytd", "1y", "5y", "max"]
 
     var body: some View {
         NavigationStack {
             VStack {
                 Form {
+                    Section("Portfolio") {
+                        if let chart = viewModel.portfolioChart {
+                            Text("$\(displayValue(chart), specifier: "%.2f")")
+                                .font(.title2.bold())
+                            Text(changeText(chart))
+                                .foregroundStyle(displayChange(chart) >= 0 ? .green : .red)
+                                .font(.subheadline)
+
+                            if let selectedPoint {
+                                Text(timeLabel(for: selectedPoint.date, range: chart.range))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Chart(chart.points) { point in
+                                AreaMark(
+                                    x: .value("Time", point.date),
+                                    y: .value("Value", point.price)
+                                )
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [
+                                            (displayChange(chart) >= 0 ? Color.green : Color.red).opacity(0.22),
+                                            .clear,
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+
+                                LineMark(
+                                    x: .value("Time", point.date),
+                                    y: .value("Value", point.price)
+                                )
+                                .foregroundStyle(displayChange(chart) >= 0 ? .green : .red)
+                                .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                                .interpolationMethod(.monotone)
+
+                                if let selectedPoint, selectedPoint.id == point.id {
+                                    RuleMark(x: .value("Selected", selectedPoint.date))
+                                        .foregroundStyle(.gray.opacity(0.45))
+                                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
+                                    PointMark(
+                                        x: .value("Selected", selectedPoint.date),
+                                        y: .value("Value", selectedPoint.price)
+                                    )
+                                    .foregroundStyle(.white)
+                                    .symbolSize(36)
+                                }
+                            }
+                            .chartYScale(domain: yDomain(for: chart.points.map { $0.price }))
+                            .chartXAxis(.hidden)
+                            .chartYAxis(.hidden)
+                            .chartPlotStyle { plot in
+                                plot.background(Color.clear)
+                            }
+                            .chartOverlay { proxy in
+                                GeometryReader { geometry in
+                                    Rectangle()
+                                        .fill(.clear)
+                                        .contentShape(Rectangle())
+                                        .gesture(
+                                            DragGesture(minimumDistance: 0)
+                                                .onChanged { value in
+                                                    let origin = geometry[proxy.plotAreaFrame].origin
+                                                    let x = value.location.x - origin.x
+                                                    guard x >= 0, x <= proxy.plotAreaSize.width,
+                                                          let date: Date = proxy.value(atX: x)
+                                                    else { return }
+                                                    selectedPoint = nearestPoint(to: date, in: chart.points)
+                                                }
+                                                .onEnded { _ in selectedPoint = nil }
+                                        )
+                                }
+                            }
+                            .frame(height: 220)
+
+                            Picker("Range", selection: $viewModel.portfolioRange) {
+                                ForEach(ranges, id: \.self) { range in
+                                    Text(range.uppercased()).tag(range)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .onChange(of: viewModel.portfolioRange) { _, _ in
+                                Task {
+                                    selectedPoint = nil
+                                    guard let token = appState.token else { return }
+                                    await viewModel.loadPortfolioChart(token: token)
+                                }
+                            }
+                        } else {
+                            Text("Loading portfolio chart...")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
                     Section("Mode") {
                         Text("Read-only portfolio mode: holdings are display-only and can only come from broker sync.")
                             .font(.footnote)
@@ -64,12 +164,69 @@ struct PortfolioView: View {
             .task {
                 if let token = appState.token {
                     await viewModel.fetch(token: token)
+                    await viewModel.loadPortfolioChart(token: token)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .portfolioDidSync)) { _ in
                 guard let token = appState.token else { return }
-                Task { await viewModel.fetch(token: token) }
+                Task {
+                    await viewModel.fetch(token: token)
+                    await viewModel.loadPortfolioChart(token: token)
+                }
             }
         }
+    }
+
+    private func displayValue(_ chart: PortfolioChartResponse) -> Double {
+        selectedPoint?.price ?? chart.current_value
+    }
+
+    private func displayChange(_ chart: PortfolioChartResponse) -> Double {
+        displayValue(chart) - chart.reference_value
+    }
+
+    private func displayChangePercent(_ chart: PortfolioChartResponse) -> Double {
+        guard chart.reference_value != 0 else { return 0 }
+        return (displayChange(chart) / chart.reference_value) * 100
+    }
+
+    private func changeText(_ chart: PortfolioChartResponse) -> String {
+        let delta = displayChange(chart)
+        let pct = displayChangePercent(chart)
+        let sign = delta >= 0 ? "+" : "-"
+        let changeAbs = String(format: "%.2f", abs(delta))
+        let pctAbs = String(format: "%.2f", abs(pct))
+        let suffix = selectedPoint == nil ? chart.period_label : "Selected"
+        return "\(sign)$\(changeAbs) (\(sign)\(pctAbs)%) \(suffix)"
+    }
+
+    private func yDomain(for prices: [Double]) -> ClosedRange<Double> {
+        guard let minPrice = prices.min(), let maxPrice = prices.max() else {
+            return 0...1
+        }
+        let span = maxPrice - minPrice
+        let basePadding = Swift.max(maxPrice * 0.003, 1.0)
+        let padding = Swift.max(span * 0.15, basePadding)
+        return (minPrice - padding)...(maxPrice + padding)
+    }
+
+    private func nearestPoint(to date: Date, in points: [HoldingChartPoint]) -> HoldingChartPoint? {
+        points.min(by: {
+            abs($0.date.timeIntervalSince1970 - date.timeIntervalSince1970) <
+            abs($1.date.timeIntervalSince1970 - date.timeIntervalSince1970)
+        })
+    }
+
+    private func timeLabel(for date: Date, range: String) -> String {
+        let formatter = DateFormatter()
+        switch range {
+        case "1d", "1w":
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+        default:
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+        }
+        return formatter.string(from: date)
     }
 }

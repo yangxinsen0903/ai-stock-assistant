@@ -17,3 +17,14 @@ class HoldingChartResponse(BaseModel):
     change: float
     change_percent: float
     points: list[ChartPoint]
+
+
+class PortfolioChartResponse(BaseModel):
+    range: str
+    period_label: str
+    currency: str
+    current_value: float
+    reference_value: float
+    change: float
+    change_percent: float
+    points: list[ChartPoint]

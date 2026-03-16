@@ -9,6 +9,9 @@ final class PortfolioViewModel: ObservableObject {
     @Published var avgCost = ""
     @Published var lastRefreshMessage = ""
 
+    @Published var portfolioChart: PortfolioChartResponse?
+    @Published var portfolioRange: String = "1d"
+
     func fetch(token: String) async {
         do {
             let response: [Holding] = try await APIClient.shared.request(
@@ -24,6 +27,19 @@ final class PortfolioViewModel: ObservableObject {
         }
     }
 
+    func loadPortfolioChart(token: String, range: String? = nil) async {
+        if let range { portfolioRange = range }
+        do {
+            let chart: PortfolioChartResponse = try await APIClient.shared.request(
+                path: "/market/portfolio/chart?range=\(portfolioRange)",
+                token: token
+            )
+            portfolioChart = chart
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func refreshFromBroker(token: String) async {
         do {
             let response: BrokerSyncLite = try await APIClient.shared.request(
@@ -33,6 +49,7 @@ final class PortfolioViewModel: ObservableObject {
             )
             lastRefreshMessage = "Synced \(response.synced_positions) positions at \(Date().formatted(date: .omitted, time: .shortened))"
             await fetch(token: token)
+            await loadPortfolioChart(token: token)
         } catch {
             errorMessage = error.localizedDescription
         }
