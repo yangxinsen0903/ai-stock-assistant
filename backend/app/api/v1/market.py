@@ -50,7 +50,6 @@ def _load_chart_payload(symbol: str, range_key: str) -> dict:
     if cached and (now_ts - cached[0] <= CACHE_TTL_SECONDS):
         return cached[1]
 
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{normalized}"
     include_pre_post = "true" if range_key == "1d" else "false"
     params = {"range": yahoo_range, "interval": interval, "includePrePost": include_pre_post}
     headers = {
@@ -58,19 +57,34 @@ def _load_chart_payload(symbol: str, range_key: str) -> dict:
         "Accept": "application/json",
     }
 
-    try:
+    def fetch_chart_payload(symbol_code: str) -> dict:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol_code}"
         with httpx.Client(timeout=10.0) as client:
-            resp = client.get(url, params=params, headers=headers)
+            r = client.get(url, params=params, headers=headers)
+        if r.status_code == 429:
+            raise HTTPException(status_code=429, detail="Market data provider rate-limited. Please retry in 1 minute.")
+        if r.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"No market data for {symbol_code}")
+        r.raise_for_status()
+        return r.json()
 
-        if resp.status_code == 429:
+    try:
+        payload = fetch_chart_payload(normalized)
+    except HTTPException as exc:
+        # Common crypto fallback for Yahoo symbols: DOGE -> DOGE-USD
+        if exc.status_code == 404 and "-" not in normalized:
+            try:
+                payload = fetch_chart_payload(f"{normalized}-USD")
+                normalized = f"{normalized}-USD"
+                cache_key = f"{normalized}:{range_key}"
+            except HTTPException:
+                if cached:
+                    return cached[1]
+                raise
+        else:
             if cached:
                 return cached[1]
-            raise HTTPException(status_code=429, detail="Market data provider rate-limited. Please retry in 1 minute.")
-
-        resp.raise_for_status()
-        payload = resp.json()
-    except HTTPException:
-        raise
+            raise
     except Exception as exc:
         if cached:
             return cached[1]
@@ -143,7 +157,12 @@ def get_portfolio_chart(
     curves: list[tuple[float, list[dict], float]] = []
     # tuple: (position_current_value, chart_points, chart_current_price)
     for h in holdings:
-        chart = _load_chart_payload(symbol=h.symbol, range_key=range)
+        try:
+            chart = _load_chart_payload(symbol=h.symbol, range_key=range)
+        except HTTPException:
+            # Skip symbols unavailable from market data provider for this timeframe.
+            continue
+
         points = chart.get("points") or []
         current_price = float(chart.get("current_price") or 0.0)
         if not points or current_price <= 0:
