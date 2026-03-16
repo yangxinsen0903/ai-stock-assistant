@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from statistics import median
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -42,7 +43,7 @@ CACHE_TTL_SECONDS = 60
 
 
 def _normalize_points(raw_points: list[ChartPoint], range_key: str) -> list[ChartPoint]:
-    # 1) sort + dedupe by timestamp
+    # 1) sort + dedupe
     sorted_points = sorted(raw_points, key=lambda p: p.ts)
     dedup: dict[int, float] = {}
     for p in sorted_points:
@@ -52,31 +53,42 @@ def _normalize_points(raw_points: list[ChartPoint], range_key: str) -> list[Char
     if len(points) < 3:
         return points
 
-    # 2) remove obvious single-tick spikes (bad print) by median-neighbor check
-    cleaned = [points[0]]
-    for i in range(1, len(points) - 1):
-        prev_px = points[i - 1].price
-        cur_px = points[i].price
-        next_px = points[i + 1].price
-        mid = (prev_px + next_px) / 2.0
-        if mid == 0:
-            cleaned.append(points[i])
+    # 2) robust spike suppression (rolling median)
+    prices = [p.price for p in points]
+    smoothed = prices[:]
+    window = 5 if len(points) >= 11 else 3
+    half = window // 2
+    for i in range(half, len(prices) - half):
+        local = prices[i - half : i + half + 1]
+        med = median(local)
+        if med == 0:
             continue
-        # if center deviates too much while neighbors are close, treat as spike
-        dev = abs(cur_px - mid) / abs(mid)
-        neighbor_dev = abs(prev_px - next_px) / abs(mid)
-        if dev > 0.08 and neighbor_dev < 0.02:
-            cleaned.append(ChartPoint(ts=points[i].ts, price=mid))
-        else:
-            cleaned.append(points[i])
-    cleaned.append(points[-1])
+        if abs(prices[i] - med) / abs(med) > 0.06:
+            smoothed[i] = med
 
-    # 3) keep intraday curves visually smooth for 1W by downsampling density a bit
-    if range_key == "1w" and len(cleaned) > 220:
-        step = max(len(cleaned) // 180, 1)
-        cleaned = cleaned[::step]
+    # 3) light EMA smoothing (visual polish, keeps trend)
+    alpha = 0.35 if range_key in ("1d", "1w") else 0.25
+    ema = smoothed[0]
+    ema_prices = [ema]
+    for px in smoothed[1:]:
+        ema = alpha * px + (1 - alpha) * ema
+        ema_prices.append(ema)
 
-    return cleaned
+    normalized = [ChartPoint(ts=points[i].ts, price=float(ema_prices[i])) for i in range(len(points))]
+
+    # 4) resample very dense short ranges to consistent cadence
+    target_step = 900 if range_key == "1w" else 300 if range_key == "1d" else None
+    if target_step:
+        bucketed: dict[int, list[float]] = {}
+        for p in normalized:
+            b = (p.ts // target_step) * target_step
+            bucketed.setdefault(b, []).append(p.price)
+        normalized = [
+            ChartPoint(ts=ts, price=sum(vals) / len(vals))
+            for ts, vals in sorted(bucketed.items(), key=lambda x: x[0])
+        ]
+
+    return normalized
 
 
 def _load_chart_payload(symbol: str, range_key: str) -> dict:
