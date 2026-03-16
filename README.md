@@ -86,20 +86,24 @@ Inside Xcode:
 4. Pick an iPhone simulator
 5. Run
 
-### Backend URL config
-Current config points to simulator localhost:
-```swift
-http://127.0.0.1:8000/api/v1
-```
-File:
-```text
-ios/AIStockAssistant/AIStockAssistant/Core/Config/AppConfig.swift
-```
+### Backend URL config (safe local override)
+`AppConfig` now supports local override without editing tracked files:
 
-If testing on a real iPhone, replace with your Mac LAN IP:
-```swift
-static let apiBaseURL = "http://192.168.1.25:8000/api/v1"
-```
+Priority order:
+1. Xcode Scheme env var `API_BASE_URL`
+2. Info.plist key `API_BASE_URL` (optional)
+3. fallback `http://127.0.0.1:8000/api/v1`
+
+Recommended (prevents pull/reset from breaking your local URL):
+
+1) In Xcode: **Product → Scheme → Edit Scheme...**
+2) Select **Run → Arguments**
+3) Under **Environment Variables**, add:
+- Name: `API_BASE_URL`
+- Value (example, real device via Tailscale): `http://100.99.145.120:8000/api/v1`
+
+For simulator/local tunnel, set:
+`http://127.0.0.1:8000/api/v1`
 
 ---
 
