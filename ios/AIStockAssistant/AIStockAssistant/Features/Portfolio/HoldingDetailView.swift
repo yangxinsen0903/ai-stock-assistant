@@ -30,12 +30,28 @@ struct HoldingDetailView: View {
                     }
 
                     Chart(chart.points) { point in
+                        AreaMark(
+                            x: .value("Time", point.date),
+                            y: .value("Price", point.price)
+                        )
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [
+                                    (displayChange(chart) >= 0 ? Color.green : Color.red).opacity(0.22),
+                                    .clear,
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+
                         LineMark(
                             x: .value("Time", point.date),
                             y: .value("Price", point.price)
                         )
                         .foregroundStyle(displayChange(chart) >= 0 ? .green : .red)
-                        .interpolationMethod(.catmullRom)
+                        .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                        .interpolationMethod(.monotone)
 
                         if let selectedPoint, selectedPoint.id == point.id {
                             RuleMark(x: .value("Selected", selectedPoint.date))
@@ -51,6 +67,11 @@ struct HoldingDetailView: View {
                         }
                     }
                     .chartYScale(domain: yDomain(for: chart))
+                    .chartXAxis(.hidden)
+                    .chartYAxis(.hidden)
+                    .chartPlotStyle { plot in
+                        plot.background(Color.clear)
+                    }
                     .chartOverlay { proxy in
                         GeometryReader { geometry in
                             Rectangle()

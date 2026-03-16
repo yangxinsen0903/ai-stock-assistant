@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.dependencies.auth import get_current_user
-from app.db.models import User, Holding
+from app.db.models import User, Holding, BrokerAccount
 from app.db.session import get_db
 from app.schemas.market import HoldingChartResponse, PortfolioChartResponse, ChartPoint
+from app.services.snaptrade_service import SnapTradeService
 
 router = APIRouter(prefix="/market", tags=["market"])
 
@@ -150,38 +151,102 @@ def get_portfolio_chart(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    holdings = db.query(Holding).filter(Holding.user_id == current_user.id).all()
-    if not holdings:
-        raise HTTPException(status_code=404, detail="No holdings available")
+    # Prefer SnapTrade account snapshots for more accurate current portfolio value.
+    broker = (
+        db.query(BrokerAccount)
+        .filter(BrokerAccount.user_id == current_user.id, BrokerAccount.broker == "robinhood")
+        .first()
+    )
+
+    snapshots: list[dict] = []
+    if broker and broker.external_user_id and broker.access_token:
+        try:
+            snapshots = SnapTradeService().fetch_account_snapshots(
+                snap_user_id=broker.external_user_id,
+                user_secret=broker.access_token,
+            )
+        except Exception:
+            snapshots = []
+
+    symbol_units: dict[str, float] = {}
+    symbol_current_price: dict[str, float] = {}
+    total_current_value = 0.0
+    positions_current_value = 0.0
+
+    # Build from snapshots when possible.
+    for account in snapshots:
+        if not isinstance(account, dict):
+            continue
+
+        total_value_obj = account.get("total_value") or {}
+        if isinstance(total_value_obj, dict):
+            total_current_value += float(total_value_obj.get("value") or 0.0)
+
+        positions = account.get("positions") or []
+        if isinstance(positions, list):
+            for p in positions:
+                if not isinstance(p, dict):
+                    continue
+                # symbol extraction
+                symbol = None
+                sym_obj = p.get("symbol")
+                if isinstance(sym_obj, dict):
+                    inner = sym_obj.get("symbol")
+                    if isinstance(inner, dict):
+                        symbol = inner.get("symbol") or inner.get("raw_symbol")
+                    elif isinstance(inner, str):
+                        symbol = inner
+                symbol = (symbol or "").upper()
+                if not symbol:
+                    continue
+
+                units = float(p.get("units") or 0.0)
+                price = float(p.get("price") or 0.0)
+                if units <= 0 or price <= 0:
+                    continue
+
+                symbol_units[symbol] = symbol_units.get(symbol, 0.0) + units
+                symbol_current_price[symbol] = price
+                positions_current_value += units * price
+
+    # Fallback to local holdings if snapshot unavailable.
+    if not symbol_units:
+        holdings = db.query(Holding).filter(Holding.user_id == current_user.id).all()
+        if not holdings:
+            raise HTTPException(status_code=404, detail="No holdings available")
+        for h in holdings:
+            symbol_units[h.symbol.upper()] = symbol_units.get(h.symbol.upper(), 0.0) + float(h.shares)
 
     curves: list[tuple[float, list[dict], float]] = []
-    # tuple: (position_current_value, chart_points, chart_current_price)
-    for h in holdings:
+    for symbol, units in symbol_units.items():
         try:
-            chart = _load_chart_payload(symbol=h.symbol, range_key=range)
+            chart = _load_chart_payload(symbol=symbol, range_key=range)
         except HTTPException:
-            # Skip symbols unavailable from market data provider for this timeframe.
             continue
 
         points = chart.get("points") or []
-        current_price = float(chart.get("current_price") or 0.0)
+        current_price = symbol_current_price.get(symbol) or float(chart.get("current_price") or 0.0)
         if not points or current_price <= 0:
             continue
-        position_value = float(h.shares) * current_price
+
+        position_value = units * current_price
         curves.append((position_value, points, current_price))
 
     if not curves:
         raise HTTPException(status_code=404, detail="No portfolio chart data")
 
-    # Use first series timestamps as reference timeline; map other series by nearest point.
+    # Include cash/non-position residual so current value aligns closer to broker total.
+    cash_component = 0.0
+    if total_current_value > 0:
+        cash_component = max(total_current_value - positions_current_value, 0.0)
+
     ref_points = curves[0][1]
     portfolio_points: list[ChartPoint] = []
 
     for rp in ref_points:
         ts = int(rp["ts"])
-        total_value = 0.0
+        total_value = cash_component
         for position_value, points, current_price in curves:
-            # nearest by abs ts
             nearest = min(points, key=lambda p: abs(int(p["ts"]) - ts))
             nearest_price = float(nearest["price"])
             ratio = nearest_price / current_price if current_price else 0.0
@@ -191,7 +256,7 @@ def get_portfolio_chart(
     if not portfolio_points:
         raise HTTPException(status_code=404, detail="No portfolio points available")
 
-    current_value = float(portfolio_points[-1].price)
+    current_value = float(total_current_value if total_current_value > 0 else portfolio_points[-1].price)
     reference_value = float(portfolio_points[0].price)
     change = current_value - reference_value
     change_pct = (change / reference_value * 100.0) if reference_value else 0.0
