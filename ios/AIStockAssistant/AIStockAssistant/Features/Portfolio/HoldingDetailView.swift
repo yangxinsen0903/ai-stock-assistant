@@ -7,7 +7,7 @@ struct HoldingDetailView: View {
     @StateObject private var viewModel = HoldingDetailViewModel()
     @State private var selectedPoint: HoldingChartPoint?
 
-    private let ranges = ["1d", "1w", "1m", "3m", "ytd", "1y"]
+    private let ranges = ["1d", "1w", "1m", "3m", "ytd", "1y", "5y", "max"]
 
     var body: some View {
         ScrollView {

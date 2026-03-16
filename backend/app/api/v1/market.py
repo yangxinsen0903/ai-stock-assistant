@@ -18,6 +18,8 @@ RANGE_MAP: dict[str, tuple[str, str]] = {
     "3m": ("3mo", "1d"),
     "ytd": ("ytd", "1d"),
     "1y": ("1y", "1d"),
+    "5y": ("5y", "1wk"),
+    "max": ("max", "1mo"),
 }
 
 PERIOD_LABEL: dict[str, str] = {
@@ -27,6 +29,8 @@ PERIOD_LABEL: dict[str, str] = {
     "3m": "Past 3 months",
     "ytd": "Year to date",
     "1y": "Past year",
+    "5y": "Past 5 years",
+    "max": "All time",
 }
 
 # Simple in-memory cache to avoid Yahoo rate-limit spikes.
@@ -38,7 +42,7 @@ CACHE_TTL_SECONDS = 60
 @router.get("/chart/{symbol}", response_model=HoldingChartResponse)
 def get_holding_chart(
     symbol: str,
-    range: str = Query("1d", pattern="^(1d|1w|1m|3m|ytd|1y)$"),
+    range: str = Query("1d", pattern="^(1d|1w|1m|3m|ytd|1y|5y|max)$"),
     _: User = Depends(get_current_user),
 ):
     normalized = symbol.upper().strip()
