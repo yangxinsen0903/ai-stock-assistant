@@ -25,7 +25,14 @@ final class AssistantViewModel: ObservableObject {
             )
             messages.append("AI: \(response.reply)")
         } catch {
-            messages.append("AI Error: \(error.localizedDescription)")
+            let msg = error.localizedDescription.lowercased()
+            if msg.contains("401") || msg.contains("unauthorized") {
+                messages.append("AI Error: Session expired. Please re-login.")
+            } else if msg.contains("timed out") {
+                messages.append("AI Error: Request timed out. Please retry.")
+            } else {
+                messages.append("AI Error: \(error.localizedDescription)")
+            }
         }
     }
 }

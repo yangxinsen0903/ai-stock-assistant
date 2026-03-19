@@ -52,7 +52,7 @@ class RecommendationService:
     def generate_reply(db: Session, user: User, message: str) -> str:
         context = RecommendationService.build_user_context(db, user)
         prompt = LLMService.build_prompt(context, message)
-        raw_text = LLMService.generate(prompt)
+        raw_text = LLMService.generate(prompt, context=context, message=message)
         safe_text = RiskGuard.sanitize(raw_text)
 
         log = RecommendationLog(

@@ -2,8 +2,14 @@ import Foundation
 
 final class APIClient {
     static let shared = APIClient()
+    private let session: URLSession
 
-    private init() {}
+    private init() {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 30
+        session = URLSession(configuration: config)
+    }
 
     func request<T: Decodable>(
         path: String,
@@ -23,7 +29,7 @@ final class APIClient {
         }
         request.httpBody = body
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
