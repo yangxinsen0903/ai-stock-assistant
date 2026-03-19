@@ -24,8 +24,7 @@ RANGE_MAP: dict[str, tuple[str, str]] = {
     "3m": ("3mo", "1d"),
     "ytd": ("ytd", "1d"),
     "1y": ("1y", "1d"),
-    "5y": ("5y", "1d"),
-    "max": ("max", "1d"),
+    "all": ("max", "1d"),
 }
 
 PERIOD_LABEL: dict[str, str] = {
@@ -35,8 +34,7 @@ PERIOD_LABEL: dict[str, str] = {
     "3m": "Past 3 months",
     "ytd": "Year to date",
     "1y": "Past year",
-    "5y": "Past 5 years",
-    "max": "All time",
+    "all": "All time",
 }
 
 # key -> (cached_at_epoch_seconds, response_payload_dict)
@@ -64,8 +62,7 @@ def _normalize_points(raw_points: list[ChartPoint], range_key: str) -> list[Char
         "3m": 86400,   # 1 day
         "ytd": 86400,
         "1y": 86400,
-        "5y": 86400,
-        "max": 86400,
+        "all": 86400,
     }.get(range_key)
     if target_step:
         bucket_last: dict[int, ChartPoint] = {}
@@ -177,7 +174,7 @@ def _load_chart_payload(symbol: str, range_key: str) -> dict:
 @router.get("/chart/{symbol}", response_model=HoldingChartResponse)
 def get_holding_chart(
     symbol: str,
-    range: str = Query("1d", pattern="^(1d|1w|1m|3m|ytd|1y|5y|max)$"),
+    range: str = Query("1d", pattern="^(1d|1w|1m|3m|ytd|1y|all)$"),
     _: User = Depends(get_current_user),
 ):
     return HoldingChartResponse(**_load_chart_payload(symbol=symbol, range_key=range))
@@ -185,7 +182,7 @@ def get_holding_chart(
 
 @router.get("/portfolio/chart", response_model=PortfolioChartResponse)
 def get_portfolio_chart(
-    range: str = Query("1d", pattern="^(1d|1w|1m|3m|ytd|1y|5y|max)$"),
+    range: str = Query("1d", pattern="^(1d|1w|1m|3m|ytd|1y|all)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -210,6 +207,7 @@ def get_portfolio_chart(
     symbol_current_price: dict[str, float] = {}
     total_current_value = 0.0
     positions_current_value = 0.0
+    total_open_pnl = 0.0
 
     # Build from snapshots when possible.
     for account in snapshots:
@@ -246,6 +244,7 @@ def get_portfolio_chart(
                 symbol_units[symbol] = symbol_units.get(symbol, 0.0) + units
                 symbol_current_price[symbol] = price
                 positions_current_value += units * price
+                total_open_pnl += float(p.get("open_pnl") or 0.0)
 
     # Fallback to local holdings if snapshot unavailable.
     if not symbol_units:
@@ -295,8 +294,23 @@ def get_portfolio_chart(
         raise HTTPException(status_code=404, detail="No portfolio points available")
 
     current_value = float(total_current_value if total_current_value > 0 else portfolio_points[-1].price)
-    reference_value = float(portfolio_points[0].price)
-    change = current_value - reference_value
+
+    if range == "all" and total_current_value > 0 and total_open_pnl != 0:
+        # Robinhood-like all-time gain/loss: current value vs invested cost basis proxy.
+        change = float(total_open_pnl)
+        reference_value = float(max(current_value - change, 1e-6))
+
+        # Re-anchor reconstructed curve to match all-time endpoints.
+        actual_ref = float(portfolio_points[0].price)
+        actual_cur = float(portfolio_points[-1].price)
+        if actual_cur != actual_ref:
+            a = (current_value - reference_value) / (actual_cur - actual_ref)
+            b = current_value - a * actual_cur
+            portfolio_points = [ChartPoint(ts=p.ts, price=a * p.price + b) for p in portfolio_points]
+    else:
+        reference_value = float(portfolio_points[0].price)
+        change = current_value - reference_value
+
     change_pct = (change / reference_value * 100.0) if reference_value else 0.0
 
     return PortfolioChartResponse(

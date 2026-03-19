@@ -6,7 +6,7 @@ struct PortfolioView: View {
     @StateObject private var viewModel = PortfolioViewModel()
     @State private var selectedPoint: HoldingChartPoint?
 
-    private let ranges = ["1d", "1w", "1m", "3m", "ytd", "1y", "5y", "max"]
+    private let ranges = ["1d", "1w", "1m", "3m", "ytd", "1y", "all"]
 
     var body: some View {
         NavigationStack {
