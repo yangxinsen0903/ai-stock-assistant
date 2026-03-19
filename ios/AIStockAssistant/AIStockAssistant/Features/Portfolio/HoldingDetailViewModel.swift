@@ -28,16 +28,23 @@ final class HoldingDetailViewModel: ObservableObject {
                 path: "/portfolio/position/\(symbol)/history?limit=30",
                 token: token
             )
-            async let statsReq: SymbolStatsResponse = APIClient.shared.request(
-                path: "/market/stats/\(symbol)",
-                token: token
-            )
 
-            let (chartResp, detailResp, historyResp, statsResp) = try await (chartReq, detailReq, historyReq, statsReq)
+            let (chartResp, detailResp, historyResp) = try await (chartReq, detailReq, historyReq)
             chart = chartResp
             position = detailResp
             history = historyResp.items
-            stats = statsResp
+
+            // Stats are best-effort; they should not break detail page rendering.
+            do {
+                let statsResp: SymbolStatsResponse = try await APIClient.shared.request(
+                    path: "/market/stats/\(symbol)",
+                    token: token
+                )
+                stats = statsResp
+            } catch {
+                stats = nil
+            }
+
             errorMessage = ""
         } catch {
             errorMessage = error.localizedDescription

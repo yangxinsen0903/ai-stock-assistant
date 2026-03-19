@@ -329,46 +329,46 @@ def get_portfolio_chart(
 @router.get("/stats/{symbol}", response_model=SymbolStatsResponse)
 def get_symbol_stats(symbol: str, _: User = Depends(get_current_user)):
     normalized = symbol.upper().strip()
-
     headers = {
         "User-Agent": "Mozilla/5.0 (AIStockAssistant/1.0)",
         "Accept": "application/json",
     }
 
-    def fetch(symbol_code: str):
-        url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol_code}"
+    def fetch_meta(symbol_code: str):
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol_code}"
+        params = {"range": "1d", "interval": "1d", "includePrePost": "false"}
         with httpx.Client(timeout=10.0) as client:
-            r = client.get(url, headers=headers)
+            r = client.get(url, params=params, headers=headers)
         if r.status_code == 404:
-            raise HTTPException(status_code=404, detail=f"No stats data for {symbol_code}")
+            return None
         r.raise_for_status()
-        body = r.json()
-        results = (((body.get("quoteResponse") or {}).get("result")) or [])
-        return results[0] if results else None
+        payload = r.json()
+        result = ((payload.get("chart") or {}).get("result") or [None])[0]
+        if not result:
+            return None
+        return result.get("meta") or {}
 
     try:
-        q = fetch(normalized)
-        if not q and "-" not in normalized:
+        meta = fetch_meta(normalized)
+        if not meta and "-" not in normalized:
             normalized = f"{normalized}-USD"
-            q = fetch(normalized)
-    except HTTPException:
-        raise
+            meta = fetch_meta(normalized)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Failed to fetch symbol stats: {exc}")
 
-    if not q:
+    if not meta:
         raise HTTPException(status_code=404, detail="No symbol stats found")
 
     return SymbolStatsResponse(
         symbol=normalized,
-        currency=str(q.get("currency") or "USD"),
-        previous_close=q.get("regularMarketPreviousClose"),
-        day_low=q.get("regularMarketDayLow"),
-        day_high=q.get("regularMarketDayHigh"),
-        fifty_two_week_low=q.get("fiftyTwoWeekLow"),
-        fifty_two_week_high=q.get("fiftyTwoWeekHigh"),
-        volume=q.get("regularMarketVolume"),
-        avg_volume=q.get("averageDailyVolume3Month") or q.get("averageDailyVolume10Day"),
-        market_cap=q.get("marketCap"),
-        pe_ratio=q.get("trailingPE"),
+        currency=str(meta.get("currency") or "USD"),
+        previous_close=meta.get("previousClose"),
+        day_low=meta.get("regularMarketDayLow"),
+        day_high=meta.get("regularMarketDayHigh"),
+        fifty_two_week_low=meta.get("fiftyTwoWeekLow"),
+        fifty_two_week_high=meta.get("fiftyTwoWeekHigh"),
+        volume=meta.get("regularMarketVolume"),
+        avg_volume=meta.get("averageDailyVolume3Month") or meta.get("averageDailyVolume10Day"),
+        market_cap=meta.get("marketCap"),
+        pe_ratio=meta.get("trailingPE"),
     )
