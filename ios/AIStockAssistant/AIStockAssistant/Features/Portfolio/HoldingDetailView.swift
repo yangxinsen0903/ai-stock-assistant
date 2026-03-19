@@ -109,13 +109,52 @@ struct HoldingDetailView: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text("Your position")
                         .font(.headline)
-                    Text("Shares: \(holding.shares, specifier: "%.4f")")
-                    Text("Avg Cost: $\(holding.avg_cost, specifier: "%.2f")")
+
+                    if let p = viewModel.position {
+                        Text("Market value: $\(p.market_value, specifier: "%.2f")")
+                        Text("Average cost: $\(p.average_cost, specifier: "%.2f")")
+                        Text("Shares: \(p.shares, specifier: "%.4f")")
+                        Text("Portfolio diversity: \(p.portfolio_diversity_pct, specifier: "%.2f")%")
+                        Text("Today return: \(signedMoney(p.today_return)) (\(signedPct(p.today_return_pct)))")
+                            .foregroundStyle(p.today_return >= 0 ? .green : .red)
+                        Text("Total return: \(signedMoney(p.total_return)) (\(signedPct(p.total_return_pct)))")
+                            .foregroundStyle(p.total_return >= 0 ? .green : .red)
+                    } else {
+                        Text("Loading position details...")
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.top, 8)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("History")
+                        .font(.headline)
+
+                    if viewModel.history.isEmpty {
+                        Text("No recent history")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(viewModel.history.prefix(8)) { row in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(row.side) \(row.quantity, specifier: "%.4f")")
+                                        .font(.subheadline)
+                                    Text(row.timestamp)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if let px = row.price {
+                                    Text("$\(px, specifier: "%.2f")")
+                                        .font(.subheadline)
+                                }
+                            }
+                        }
+                    }
+                }
 
                 if !viewModel.errorMessage.isEmpty {
                     Text(viewModel.errorMessage)
@@ -181,5 +220,15 @@ struct HoldingDetailView: View {
             formatter.timeStyle = .none
         }
         return formatter.string(from: date)
+    }
+
+    private func signedMoney(_ value: Double) -> String {
+        let sign = value >= 0 ? "+" : "-"
+        return "\(sign)$\(abs(value), specifier: "%.2f")"
+    }
+
+    private func signedPct(_ value: Double) -> String {
+        let sign = value >= 0 ? "+" : "-"
+        return "\(sign)\(abs(value), specifier: "%.2f")%"
     }
 }

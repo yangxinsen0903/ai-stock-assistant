@@ -20,6 +20,12 @@ struct PortfolioView: View {
                                 .foregroundStyle(displayChange(chart) >= 0 ? .green : .red)
                                 .font(.subheadline)
 
+                            if let summary = viewModel.portfolioSummary {
+                                Text("Net deposits: $\(summary.net_deposits, specifier: "%.2f")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
                             if let selectedPoint {
                                 Text(timeLabel(for: selectedPoint.date, range: chart.range))
                                     .font(.caption)
@@ -160,6 +166,7 @@ struct PortfolioView: View {
             .task {
                 if let token = appState.token {
                     await viewModel.fetch(token: token)
+                    await viewModel.loadSummary(token: token)
                     await viewModel.loadPortfolioChart(token: token)
                 }
             }
@@ -167,6 +174,7 @@ struct PortfolioView: View {
                 guard let token = appState.token else { return }
                 Task {
                     await viewModel.fetch(token: token)
+                    await viewModel.loadSummary(token: token)
                     await viewModel.loadPortfolioChart(token: token)
                 }
             }
@@ -174,14 +182,23 @@ struct PortfolioView: View {
     }
 
     private func displayValue(_ chart: PortfolioChartResponse) -> Double {
-        selectedPoint?.price ?? chart.current_value
+        if chart.range == "all", let summary = viewModel.portfolioSummary, selectedPoint == nil {
+            return summary.total_value
+        }
+        return selectedPoint?.price ?? chart.current_value
     }
 
     private func displayChange(_ chart: PortfolioChartResponse) -> Double {
-        displayValue(chart) - chart.reference_value
+        if chart.range == "all", let summary = viewModel.portfolioSummary, selectedPoint == nil {
+            return summary.total_return
+        }
+        return displayValue(chart) - chart.reference_value
     }
 
     private func displayChangePercent(_ chart: PortfolioChartResponse) -> Double {
+        if chart.range == "all", let summary = viewModel.portfolioSummary, selectedPoint == nil {
+            return summary.total_return_pct
+        }
         guard chart.reference_value != 0 else { return 0 }
         return (displayChange(chart) / chart.reference_value) * 100
     }

@@ -10,6 +10,7 @@ final class PortfolioViewModel: ObservableObject {
     @Published var lastRefreshMessage = ""
 
     @Published var portfolioChart: PortfolioChartResponse?
+    @Published var portfolioSummary: PortfolioSummaryResponse?
     @Published var portfolioRange: String = "1d"
 
     func fetch(token: String) async {
@@ -22,6 +23,18 @@ final class PortfolioViewModel: ObservableObject {
             if !response.isEmpty {
                 lastRefreshMessage = "Updated \(Date().formatted(date: .omitted, time: .shortened))"
             }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadSummary(token: String) async {
+        do {
+            let summary: PortfolioSummaryResponse = try await APIClient.shared.request(
+                path: "/portfolio/summary",
+                token: token
+            )
+            portfolioSummary = summary
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -49,6 +62,7 @@ final class PortfolioViewModel: ObservableObject {
             )
             lastRefreshMessage = "Synced \(response.synced_positions) positions at \(Date().formatted(date: .omitted, time: .shortened))"
             await fetch(token: token)
+            await loadSummary(token: token)
             await loadPortfolioChart(token: token)
         } catch {
             errorMessage = error.localizedDescription
@@ -106,4 +120,14 @@ private struct BrokerSyncLite: Codable {
     let broker: String
     let synced_positions: Int
     let message: String
+}
+
+struct PortfolioSummaryResponse: Codable {
+    let currency: String
+    let total_value: Double
+    let total_return: Double
+    let total_return_pct: Double
+    let today_return: Double
+    let today_return_pct: Double
+    let net_deposits: Double
 }
