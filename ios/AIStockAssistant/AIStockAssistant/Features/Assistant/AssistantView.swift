@@ -9,8 +9,8 @@ struct AssistantView: View {
             VStack {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(viewModel.messages, id: \.self) { message in
-                            Text(message)
+                        ForEach(viewModel.messages) { message in
+                            Text(message.text)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(10)
                                 .background(Color.gray.opacity(0.1))

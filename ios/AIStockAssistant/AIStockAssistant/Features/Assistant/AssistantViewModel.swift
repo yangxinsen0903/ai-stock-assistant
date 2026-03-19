@@ -1,8 +1,13 @@
 import Foundation
 
+struct ChatMessage: Identifiable {
+    let id = UUID()
+    let text: String
+}
+
 @MainActor
 final class AssistantViewModel: ObservableObject {
-    @Published var messages: [String] = []
+    @Published var messages: [ChatMessage] = []
     @Published var input = ""
     @Published var isLoading = false
 
@@ -10,7 +15,7 @@ final class AssistantViewModel: ObservableObject {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        messages.append("You: \(trimmed)")
+        messages.append(ChatMessage(text: "You: \(trimmed)"))
         input = ""
         isLoading = true
         defer { isLoading = false }
@@ -23,15 +28,15 @@ final class AssistantViewModel: ObservableObject {
                 body: body,
                 token: token
             )
-            messages.append("AI: \(response.reply)")
+            messages.append(ChatMessage(text: "AI: \(response.reply)"))
         } catch {
             let msg = error.localizedDescription.lowercased()
             if msg.contains("401") || msg.contains("unauthorized") {
-                messages.append("AI Error: Session expired. Please re-login.")
+                messages.append(ChatMessage(text: "AI Error: Session expired. Please re-login."))
             } else if msg.contains("timed out") {
-                messages.append("AI Error: Request timed out. Please retry.")
+                messages.append(ChatMessage(text: "AI Error: Request timed out. Please retry."))
             } else {
-                messages.append("AI Error: \(error.localizedDescription)")
+                messages.append(ChatMessage(text: "AI Error: \(error.localizedDescription)"))
             }
         }
     }
