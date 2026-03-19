@@ -23,11 +23,17 @@ User question:
 
 Format:
 1. Summary
-2. Suggested action
-3. Why
+2. Suggested action (Buy/Add/Hold/Trim/Exit candidates)
+3. Why (must reference concrete data from context)
 4. Risks
 5. Alternatives
-6. Disclaimer
+6. Next 7 days watchlist (events/news/earnings)
+7. Disclaimer
+
+Rules:
+- No guaranteed returns.
+- No all-in recommendations.
+- Include evidence bullets like: [DATA] symbol, metric, value.
 """.strip()
 
     @staticmethod

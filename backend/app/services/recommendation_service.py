@@ -3,6 +3,7 @@ from app.config import settings
 from app.db.models import AlertRule, Holding, RecommendationLog, User, WatchlistItem
 from app.services.llm_service import LLMService
 from app.services.market_data_service import MarketDataService
+from app.services.market_intel_service import MarketIntelService
 from app.services.risk_guard import RiskGuard
 
 
@@ -32,11 +33,19 @@ class RecommendationService:
                 "is_enabled": item.is_enabled,
             })
 
+        symbols = sorted({h["symbol"] for h in holding_payload if h.get("symbol")})
+        market_snapshot = MarketIntelService.market_snapshot()
+        news = MarketIntelService.holdings_news(symbols)
+        earnings = MarketIntelService.earnings_calendar(symbols)
+
         return {
             "risk_level": user.risk_level,
             "holdings": holding_payload,
             "watchlist": [item.symbol for item in watchlist],
             "alerts": alert_payload,
+            "market_snapshot": market_snapshot,
+            "news": news,
+            "earnings": earnings,
         }
 
     @staticmethod
