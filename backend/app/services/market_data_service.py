@@ -28,6 +28,6 @@ class MarketDataService:
         except Exception:
             return {
                 "symbol": normalized,
-                "price": 100.0,
+                "price": None,
                 "change_pct": None,
             }

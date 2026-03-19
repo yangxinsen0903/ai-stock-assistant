@@ -116,6 +116,7 @@ Rules:
 - No guaranteed returns.
 - No all-in recommendations.
 - Include evidence bullets like: [DATA] symbol, metric, value.
+- If critical data is missing/uncertain, explicitly say "data unavailable" and avoid directional trade advice.
 """.strip()
 
     @staticmethod

@@ -3,6 +3,7 @@ import SwiftUI
 struct AssistantView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = AssistantViewModel()
+    @FocusState private var isInputFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -19,11 +20,22 @@ struct AssistantView: View {
                     }
                     .padding()
                 }
+                .onTapGesture {
+                    isInputFocused = false
+                }
 
                 HStack(spacing: 8) {
                     TextField("Ask about your portfolio...", text: $viewModel.input)
                         .textFieldStyle(.roundedBorder)
+                        .focused($isInputFocused)
+                        .submitLabel(.send)
+                        .onSubmit {
+                            if let token = appState.token {
+                                Task { await viewModel.send(token: token) }
+                            }
+                        }
                     Button("Send") {
+                        isInputFocused = false
                         if let token = appState.token {
                             Task { await viewModel.send(token: token) }
                         }
@@ -33,6 +45,12 @@ struct AssistantView: View {
                 .padding()
             }
             .navigationTitle("Assistant")
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { isInputFocused = false }
+                }
+            }
         }
     }
 }
