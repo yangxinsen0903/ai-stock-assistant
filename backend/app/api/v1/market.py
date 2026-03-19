@@ -10,6 +10,7 @@ from app.dependencies.auth import get_current_user
 from app.db.models import User, Holding, BrokerAccount
 from app.db.session import get_db
 from app.schemas.market import HoldingChartResponse, PortfolioChartResponse, ChartPoint
+from app.schemas.market_stats import SymbolStatsResponse
 from app.services.snaptrade_service import SnapTradeService
 
 router = APIRouter(prefix="/market", tags=["market"])
@@ -322,4 +323,52 @@ def get_portfolio_chart(
         change=change,
         change_percent=change_pct,
         points=portfolio_points,
+    )
+
+
+@router.get("/stats/{symbol}", response_model=SymbolStatsResponse)
+def get_symbol_stats(symbol: str, _: User = Depends(get_current_user)):
+    normalized = symbol.upper().strip()
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (AIStockAssistant/1.0)",
+        "Accept": "application/json",
+    }
+
+    def fetch(symbol_code: str):
+        url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol_code}"
+        with httpx.Client(timeout=10.0) as client:
+            r = client.get(url, headers=headers)
+        if r.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"No stats data for {symbol_code}")
+        r.raise_for_status()
+        body = r.json()
+        results = (((body.get("quoteResponse") or {}).get("result")) or [])
+        return results[0] if results else None
+
+    try:
+        q = fetch(normalized)
+        if not q and "-" not in normalized:
+            normalized = f"{normalized}-USD"
+            q = fetch(normalized)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch symbol stats: {exc}")
+
+    if not q:
+        raise HTTPException(status_code=404, detail="No symbol stats found")
+
+    return SymbolStatsResponse(
+        symbol=normalized,
+        currency=str(q.get("currency") or "USD"),
+        previous_close=q.get("regularMarketPreviousClose"),
+        day_low=q.get("regularMarketDayLow"),
+        day_high=q.get("regularMarketDayHigh"),
+        fifty_two_week_low=q.get("fiftyTwoWeekLow"),
+        fifty_two_week_high=q.get("fiftyTwoWeekHigh"),
+        volume=q.get("regularMarketVolume"),
+        avg_volume=q.get("averageDailyVolume3Month") or q.get("averageDailyVolume10Day"),
+        market_cap=q.get("marketCap"),
+        pe_ratio=q.get("trailingPE"),
     )

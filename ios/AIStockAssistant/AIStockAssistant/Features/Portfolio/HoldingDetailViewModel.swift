@@ -5,6 +5,7 @@ final class HoldingDetailViewModel: ObservableObject {
     @Published var chart: HoldingChartResponse?
     @Published var selectedRange: String = "1d"
     @Published var position: PositionDetailResponse?
+    @Published var stats: SymbolStatsResponse?
     @Published var history: [PositionHistoryItem] = []
     @Published var errorMessage = ""
     @Published var isLoading = false
@@ -27,11 +28,16 @@ final class HoldingDetailViewModel: ObservableObject {
                 path: "/portfolio/position/\(symbol)/history?limit=30",
                 token: token
             )
+            async let statsReq: SymbolStatsResponse = APIClient.shared.request(
+                path: "/market/stats/\(symbol)",
+                token: token
+            )
 
-            let (chartResp, detailResp, historyResp) = try await (chartReq, detailReq, historyReq)
+            let (chartResp, detailResp, historyResp, statsResp) = try await (chartReq, detailReq, historyReq, statsReq)
             chart = chartResp
             position = detailResp
             history = historyResp.items
+            stats = statsResp
             errorMessage = ""
         } catch {
             errorMessage = error.localizedDescription

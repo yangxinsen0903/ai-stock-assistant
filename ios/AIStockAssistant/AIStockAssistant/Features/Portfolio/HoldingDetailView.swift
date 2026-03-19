@@ -130,6 +130,24 @@ struct HoldingDetailView: View {
                 .padding(.top, 8)
 
                 VStack(alignment: .leading, spacing: 8) {
+                    Text("Stats")
+                        .font(.headline)
+
+                    if let s = viewModel.stats {
+                        statsRow("Previous close", money(s.previous_close))
+                        statsRow("Day range", rangeText(low: s.day_low, high: s.day_high))
+                        statsRow("52w range", rangeText(low: s.fifty_two_week_low, high: s.fifty_two_week_high))
+                        statsRow("Volume", number(s.volume))
+                        statsRow("Avg volume", number(s.avg_volume))
+                        statsRow("Market cap", compactMoney(s.market_cap))
+                        statsRow("P/E ratio", decimal(s.pe_ratio))
+                    } else {
+                        Text("Loading stats...")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
                     Text("History")
                         .font(.headline)
 
@@ -230,5 +248,44 @@ struct HoldingDetailView: View {
     private func signedPct(_ value: Double) -> String {
         let sign = value >= 0 ? "+" : "-"
         return "\(sign)\(abs(value), specifier: "%.2f")%"
+    }
+
+    @ViewBuilder
+    private func statsRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+        }
+        .font(.subheadline)
+    }
+
+    private func money(_ value: Double?) -> String {
+        guard let value else { return "--" }
+        return "$\(value, specifier: "%.2f")"
+    }
+
+    private func rangeText(low: Double?, high: Double?) -> String {
+        guard let low, let high else { return "--" }
+        return "$\(low, specifier: "%.2f") - $\(high, specifier: "%.2f")"
+    }
+
+    private func number(_ value: Int?) -> String {
+        guard let value else { return "--" }
+        return value.formatted(.number.grouping(.automatic))
+    }
+
+    private func compactMoney(_ value: Double?) -> String {
+        guard let value else { return "--" }
+        if value >= 1_000_000_000_000 { return String(format: "$%.2fT", value / 1_000_000_000_000) }
+        if value >= 1_000_000_000 { return String(format: "$%.2fB", value / 1_000_000_000) }
+        if value >= 1_000_000 { return String(format: "$%.2fM", value / 1_000_000) }
+        return "$\(value, specifier: "%.0f")"
+    }
+
+    private func decimal(_ value: Double?) -> String {
+        guard let value else { return "--" }
+        return String(format: "%.2f", value)
     }
 }
