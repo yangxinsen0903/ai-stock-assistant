@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from datetime import datetime
 import uuid
 
 import snaptrade_client
@@ -80,9 +81,12 @@ class SnapTradeService:
 
         return SnapTradeConnection(user_id=candidate_user_id, user_secret=user_secret, redirect_uri=redirect_uri)
 
-    def fetch_all_holdings(self, *, snap_user_id: str, user_secret: str) -> list[dict[str, Any]]:
+    def fetch_account_snapshots(self, *, snap_user_id: str, user_secret: str) -> list[dict[str, Any]]:
         response = self.account_api.get_all_user_holdings(user_id=snap_user_id, user_secret=user_secret)
-        account_rows = response.body or []
+        return response.body or []
+
+    def fetch_all_holdings(self, *, snap_user_id: str, user_secret: str) -> list[dict[str, Any]]:
+        account_rows = self.fetch_account_snapshots(snap_user_id=snap_user_id, user_secret=user_secret)
 
         # SnapTrade returns a list of account snapshots; each item contains `positions`.
         position_rows: list[dict[str, Any]] = []
@@ -110,6 +114,142 @@ class SnapTradeService:
             )
 
         return holdings
+
+    def build_portfolio_summary(self, *, snapshots: list[dict[str, Any]]) -> dict[str, float]:
+        total_value = 0.0
+        total_cost = 0.0
+        total_open_pnl = 0.0
+
+        for account in snapshots:
+            if not isinstance(account, dict):
+                continue
+
+            total_val_obj = account.get("total_value") or {}
+            if isinstance(total_val_obj, dict):
+                total_value += float(total_val_obj.get("value") or 0.0)
+
+            for position in (account.get("positions") or []):
+                if not isinstance(position, dict):
+                    continue
+                units = float(position.get("units") or 0.0)
+                avg_cost = float(position.get("average_purchase_price") or 0.0)
+                total_cost += units * avg_cost
+                total_open_pnl += float(position.get("open_pnl") or 0.0)
+
+        # Approximation: invested principal = current value - open pnl.
+        invested_principal = max(total_value - total_open_pnl, 1e-6)
+        total_return = total_open_pnl
+        total_return_pct = (total_return / invested_principal) * 100.0 if invested_principal else 0.0
+
+        # Daily return proxy from position-level open_pnl is not available separately in this payload.
+        # Keep 0.0 until intraday delta is computed from time-series aggregation.
+        today_return = 0.0
+        today_return_pct = 0.0
+
+        net_deposits = invested_principal
+
+        return {
+            "total_value": total_value,
+            "total_return": total_return,
+            "total_return_pct": total_return_pct,
+            "today_return": today_return,
+            "today_return_pct": today_return_pct,
+            "net_deposits": net_deposits,
+        }
+
+    def build_position_detail(self, *, snapshots: list[dict[str, Any]], symbol: str) -> dict[str, float] | None:
+        target = symbol.upper()
+        total_portfolio_value = 0.0
+        market_value = 0.0
+        shares = 0.0
+        weighted_cost_sum = 0.0
+        total_open_pnl = 0.0
+
+        for account in snapshots:
+            if not isinstance(account, dict):
+                continue
+
+            total_val_obj = account.get("total_value") or {}
+            if isinstance(total_val_obj, dict):
+                total_portfolio_value += float(total_val_obj.get("value") or 0.0)
+
+            for p in (account.get("positions") or []):
+                if not isinstance(p, dict):
+                    continue
+                sym = self._extract_symbol(p)
+                if not sym or sym.upper() != target:
+                    continue
+
+                units = float(p.get("units") or 0.0)
+                price = float(p.get("price") or 0.0)
+                avg_cost = float(p.get("average_purchase_price") or 0.0)
+                open_pnl = float(p.get("open_pnl") or 0.0)
+
+                shares += units
+                market_value += units * price
+                weighted_cost_sum += units * avg_cost
+                total_open_pnl += open_pnl
+
+        if shares <= 0:
+            return None
+
+        average_cost = weighted_cost_sum / shares if shares else 0.0
+        total_cost_value = weighted_cost_sum
+        total_return = total_open_pnl
+        total_return_pct = (total_return / total_cost_value * 100.0) if total_cost_value else 0.0
+
+        today_return = 0.0
+        today_return_pct = 0.0
+        portfolio_diversity_pct = (market_value / total_portfolio_value * 100.0) if total_portfolio_value else 0.0
+
+        return {
+            "market_value": market_value,
+            "average_cost": average_cost,
+            "shares": shares,
+            "portfolio_diversity_pct": portfolio_diversity_pct,
+            "today_return": today_return,
+            "today_return_pct": today_return_pct,
+            "total_return": total_return,
+            "total_return_pct": total_return_pct,
+        }
+
+    def build_position_history(self, *, snapshots: list[dict[str, Any]], symbol: str, limit: int = 100) -> list[dict[str, Any]]:
+        target = symbol.upper()
+        items: list[dict[str, Any]] = []
+
+        for account in snapshots:
+            if not isinstance(account, dict):
+                continue
+            for order in (account.get("orders") or []):
+                if not isinstance(order, dict):
+                    continue
+
+                order_symbol = str(order.get("symbol") or "").upper()
+                # Some payloads use universal_symbol with nested symbol string.
+                uni = order.get("universal_symbol") or {}
+                if isinstance(uni, dict):
+                    order_symbol = str(uni.get("symbol") or order_symbol).upper()
+
+                if order_symbol != target:
+                    continue
+
+                ts = order.get("time_executed") or order.get("time_updated") or order.get("time_placed")
+                qty = float(order.get("filled_quantity") or order.get("total_quantity") or 0.0)
+                px = order.get("execution_price") or order.get("limit_price")
+                price = float(px) if px not in (None, "") else None
+
+                items.append(
+                    {
+                        "timestamp": str(ts or datetime.utcnow().isoformat()),
+                        "side": str(order.get("action") or "UNKNOWN"),
+                        "quantity": qty,
+                        "price": price,
+                        "order_type": str(order.get("order_type") or ""),
+                    }
+                )
+
+        items.sort(key=lambda x: x["timestamp"], reverse=True)
+        return items[:limit]
 
     @staticmethod
     def _extract_symbol(row: dict[str, Any]) -> str | None:
