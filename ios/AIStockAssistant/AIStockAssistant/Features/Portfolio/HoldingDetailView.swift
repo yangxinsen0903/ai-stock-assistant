@@ -242,12 +242,12 @@ struct HoldingDetailView: View {
 
     private func signedMoney(_ value: Double) -> String {
         let sign = value >= 0 ? "+" : "-"
-        return "\(sign)$\(abs(value), specifier: "%.2f")"
+        return "\(sign)$\(String(format: "%.2f", abs(value)))"
     }
 
     private func signedPct(_ value: Double) -> String {
         let sign = value >= 0 ? "+" : "-"
-        return "\(sign)\(abs(value), specifier: "%.2f")%"
+        return "\(sign)\(String(format: "%.2f", abs(value)))%"
     }
 
     @ViewBuilder
