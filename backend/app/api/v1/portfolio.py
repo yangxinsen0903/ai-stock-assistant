@@ -44,16 +44,52 @@ def list_holdings(db: Session = Depends(get_db), current_user: User = Depends(ge
 @router.get("/summary", response_model=PortfolioSummaryResponse)
 def portfolio_summary(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     snapshots = _load_snaptrade_snapshots(db, current_user.id)
-    summary = SnapTradeService().build_portfolio_summary(snapshots=snapshots)
+    service = SnapTradeService()
+    summary = service.build_portfolio_summary(snapshots=snapshots)
+
+    # Better today return approximation: sum position delta vs previous close.
+    today_return = 0.0
+    for account in snapshots:
+        for p in (account.get("positions") or []):
+            sym = service._extract_symbol(p)
+            units = float(p.get("units") or 0.0)
+            if not sym or units <= 0:
+                continue
+            try:
+                from app.api.v1.market import _load_chart_payload  # local import to avoid cycles
+                c = _load_chart_payload(sym, "1d")
+                today_return += units * (float(c.get("current_price") or 0.0) - float(c.get("previous_close") or 0.0))
+            except Exception:
+                continue
+
+    total_value = float(summary.get("total_value") or 0.0)
+    today_return_pct = (today_return / (total_value - today_return) * 100.0) if (total_value - today_return) else 0.0
+    summary["today_return"] = today_return
+    summary["today_return_pct"] = today_return_pct
+
     return PortfolioSummaryResponse(**summary)
 
 
 @router.get("/position/{symbol}", response_model=PositionDetailResponse)
 def position_detail(symbol: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     snapshots = _load_snaptrade_snapshots(db, current_user.id)
-    detail = SnapTradeService().build_position_detail(snapshots=snapshots, symbol=symbol)
+    service = SnapTradeService()
+    detail = service.build_position_detail(snapshots=snapshots, symbol=symbol)
     if not detail:
         raise HTTPException(status_code=404, detail="Position not found")
+
+    # Better today-return from 1D quote baseline.
+    units = detail["shares"]
+    try:
+        from app.api.v1.market import _load_chart_payload
+        c = _load_chart_payload(symbol, "1d")
+        today_return = units * (float(c.get("current_price") or 0.0) - float(c.get("previous_close") or 0.0))
+        baseline = units * float(c.get("previous_close") or 0.0)
+        detail["today_return"] = today_return
+        detail["today_return_pct"] = (today_return / baseline * 100.0) if baseline else 0.0
+    except Exception:
+        pass
+
     return PositionDetailResponse(symbol=symbol.upper(), **detail)
 
 
@@ -65,7 +101,20 @@ def position_history(
     current_user: User = Depends(get_current_user),
 ):
     snapshots = _load_snaptrade_snapshots(db, current_user.id)
-    rows = SnapTradeService().build_position_history(snapshots=snapshots, symbol=symbol, limit=limit)
+    service = SnapTradeService()
+    broker = (
+        db.query(BrokerAccount)
+        .filter(BrokerAccount.user_id == current_user.id, BrokerAccount.broker == "robinhood")
+        .first()
+    )
+    activities = []
+    try:
+        if broker and broker.external_user_id and broker.access_token:
+            activities = service.fetch_activities(snap_user_id=broker.external_user_id, user_secret=broker.access_token)
+    except Exception:
+        activities = []
+
+    rows = service.build_position_history(activities=activities, symbol=symbol, limit=limit)
     return PositionHistoryResponse(
         symbol=symbol.upper(),
         items=[PositionHistoryItem(**row) for row in rows],

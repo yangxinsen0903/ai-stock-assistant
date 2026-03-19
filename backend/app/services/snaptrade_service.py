@@ -8,6 +8,7 @@ import uuid
 import snaptrade_client
 from snaptrade_client.apis.tags.account_information_api import AccountInformationApi
 from snaptrade_client.apis.tags.authentication_api import AuthenticationApi
+from snaptrade_client.apis.tags.transactions_and_reporting_api import TransactionsAndReportingApi
 from snaptrade_client.exceptions import ApiException
 
 from app.config import settings
@@ -30,6 +31,7 @@ class SnapTradeService:
         client = snaptrade_client.ApiClient(cfg)
         self.auth_api = AuthenticationApi(client)
         self.account_api = AccountInformationApi(client)
+        self.tx_api = TransactionsAndReportingApi(client)
 
     def ensure_user_and_link(self, *, snap_user_id: str, existing_user_secret: str | None) -> SnapTradeConnection:
         """
@@ -213,40 +215,45 @@ class SnapTradeService:
             "total_return_pct": total_return_pct,
         }
 
-    def build_position_history(self, *, snapshots: list[dict[str, Any]], symbol: str, limit: int = 100) -> list[dict[str, Any]]:
+    def fetch_activities(self, *, snap_user_id: str, user_secret: str) -> list[dict[str, Any]]:
+        # Deprecated upstream but still the richest source for fills/deposits/dividends.
+        res = self.tx_api.get_activities(user_id=snap_user_id, user_secret=user_secret)
+        return res.body or []
+
+    def build_position_history(self, *, activities: list[dict[str, Any]], symbol: str, limit: int = 100) -> list[dict[str, Any]]:
         target = symbol.upper()
         items: list[dict[str, Any]] = []
 
-        for account in snapshots:
-            if not isinstance(account, dict):
+        for act in activities:
+            if not isinstance(act, dict):
                 continue
-            for order in (account.get("orders") or []):
-                if not isinstance(order, dict):
-                    continue
 
-                order_symbol = str(order.get("symbol") or "").upper()
-                # Some payloads use universal_symbol with nested symbol string.
-                uni = order.get("universal_symbol") or {}
-                if isinstance(uni, dict):
-                    order_symbol = str(uni.get("symbol") or order_symbol).upper()
+            sym = ""
+            sym_obj = act.get("symbol")
+            if isinstance(sym_obj, dict):
+                sym = str(sym_obj.get("symbol") or sym_obj.get("raw_symbol") or "")
+            elif isinstance(sym_obj, str):
+                sym = sym_obj
+            sym = sym.upper()
 
-                if order_symbol != target:
-                    continue
+            if sym != target:
+                continue
 
-                ts = order.get("time_executed") or order.get("time_updated") or order.get("time_placed")
-                qty = float(order.get("filled_quantity") or order.get("total_quantity") or 0.0)
-                px = order.get("execution_price") or order.get("limit_price")
-                price = float(px) if px not in (None, "") else None
+            ts = act.get("trade_date") or act.get("settlement_date") or datetime.utcnow().isoformat()
+            side = str(act.get("type") or "UNKNOWN")
+            qty = float(act.get("units") or 0.0)
+            price = act.get("price")
+            px = float(price) if price not in (None, "") else None
 
-                items.append(
-                    {
-                        "timestamp": str(ts or datetime.utcnow().isoformat()),
-                        "side": str(order.get("action") or "UNKNOWN"),
-                        "quantity": qty,
-                        "price": price,
-                        "order_type": str(order.get("order_type") or ""),
-                    }
-                )
+            items.append(
+                {
+                    "timestamp": str(ts),
+                    "side": side,
+                    "quantity": qty,
+                    "price": px,
+                    "order_type": str(act.get("description") or ""),
+                }
+            )
 
         items.sort(key=lambda x: x["timestamp"], reverse=True)
         return items[:limit]
