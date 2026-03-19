@@ -263,12 +263,12 @@ struct HoldingDetailView: View {
 
     private func money(_ value: Double?) -> String {
         guard let value else { return "--" }
-        return "$\(value, specifier: "%.2f")"
+        return "$\(String(format: "%.2f", value))"
     }
 
     private func rangeText(low: Double?, high: Double?) -> String {
         guard let low, let high else { return "--" }
-        return "$\(low, specifier: "%.2f") - $\(high, specifier: "%.2f")"
+        return "$\(String(format: "%.2f", low)) - $\(String(format: "%.2f", high))"
     }
 
     private func number(_ value: Int?) -> String {
@@ -281,7 +281,7 @@ struct HoldingDetailView: View {
         if value >= 1_000_000_000_000 { return String(format: "$%.2fT", value / 1_000_000_000_000) }
         if value >= 1_000_000_000 { return String(format: "$%.2fB", value / 1_000_000_000) }
         if value >= 1_000_000 { return String(format: "$%.2fM", value / 1_000_000) }
-        return "$\(value, specifier: "%.0f")"
+        return "$\(String(format: "%.0f", value))"
     }
 
     private func decimal(_ value: Double?) -> String {
