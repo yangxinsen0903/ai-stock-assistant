@@ -125,12 +125,34 @@ Rules:
 
         try:
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
-            response = client.responses.create(
-                model=settings.OPENAI_MODEL,
-                input=prompt,
-                timeout=20,
-            )
-            text = (response.output_text or "").strip()
+
+            # Compatibility: newer SDK has `responses.create`, older SDK uses `chat.completions.create`.
+            if hasattr(client, "responses"):
+                response = client.responses.create(
+                    model=settings.OPENAI_MODEL,
+                    input=prompt,
+                    timeout=20,
+                )
+                text = (getattr(response, "output_text", "") or "").strip()
+            else:
+                completion = client.chat.completions.create(
+                    model=settings.OPENAI_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are an AI stock assistant."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.3,
+                    max_tokens=800,
+                )
+                text = (
+                    (((completion.choices or [None])[0]).message.content if completion.choices else "")
+                    or ""
+                ).strip()
+
             return text if text else _contextual_fallback(context or {}, message)
-        except Exception:
-            return _contextual_fallback(context or {}, message)
+        except Exception as exc:
+            base = _contextual_fallback(context or {}, message)
+            msg = str(exc)
+            if "insufficient_quota" in msg or "quota" in msg.lower():
+                return base + "\n\n[System] Cloud model unavailable: OpenAI quota exceeded."
+            return base + "\n\n[System] Cloud model unavailable, using fallback analysis."
